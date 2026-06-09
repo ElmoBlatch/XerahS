@@ -68,6 +68,20 @@ public class LinuxHotkeyServiceTests
     }
 
     [Test]
+    public void ResolveGrabbedStatus_WhenGlobalShortcutsUnavailable_DoesNotClaimRegistered()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                LinuxHotkeyService.ResolveGrabbedStatus(globalShortcutsUnavailable: true),
+                Is.EqualTo(HotkeyStatus.GlobalShortcutsUnavailable));
+            Assert.That(
+                LinuxHotkeyService.ResolveGrabbedStatus(globalShortcutsUnavailable: false),
+                Is.EqualTo(HotkeyStatus.Registered));
+        });
+    }
+
+    [Test]
     public void ModifierMatch_IgnoresCapsAndNumLockButRejectsExtraModifiers()
     {
         uint controlShift = LinuxHotkeyService.GetModifierMaskForTesting(KeyModifiers.Control | KeyModifiers.Shift);

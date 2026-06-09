@@ -202,7 +202,13 @@ public sealed class WaylandPortalHotkeyService : IHotkeyService
         {
             bool fallbackReady = ActivateFallbackHotkeys("portal unavailable during hotkey registration");
             bool isRegistered = fallbackReady && _fallbackHotkeyService != null && _fallbackHotkeyService.IsRegistered(hotkeyInfo);
-            hotkeyInfo.Status = isRegistered ? PlatformHotkeyStatus.Registered : PlatformHotkeyStatus.UnsupportedPlatform;
+            // ActivateFallbackHotkeys already stamped hotkeyInfo.Status via the fallback service
+            // (GlobalShortcutsUnavailable on a native Wayland session, Registered on real X11, or
+            // Failed). Only override when the fallback service could not be created at all.
+            if (!fallbackReady)
+            {
+                hotkeyInfo.Status = PlatformHotkeyStatus.UnsupportedPlatform;
+            }
             return isRegistered;
         }
 
@@ -672,7 +678,9 @@ public sealed class WaylandPortalHotkeyService : IHotkeyService
         foreach (var hotkey in snapshot)
         {
             bool ok = _fallbackHotkeyService.RegisterHotkey(hotkey);
-            hotkey.Status = ok ? PlatformHotkeyStatus.Registered : PlatformHotkeyStatus.Failed;
+            // RegisterHotkey already set hotkey.Status honestly (Registered on real X11,
+            // GlobalShortcutsUnavailable on a native Wayland session, or Failed). Do not
+            // overwrite it with Registered — that would be a false positive on Wayland.
             if (!ok)
             {
                 DebugHelper.WriteLine($"WaylandPortalHotkeyService: X11 fallback failed to register {hotkey}");
@@ -691,7 +699,12 @@ public sealed class WaylandPortalHotkeyService : IHotkeyService
 
         try
         {
-            _fallbackHotkeyService = new LinuxHotkeyService();
+            // The portal-backed service only runs on a portal-capable (Wayland) session, so its
+            // X11 fallback cannot deliver hotkeys globally there. Mark it accordingly so the
+            // fallback reports GlobalShortcutsUnavailable instead of a false Registered. On a
+            // (rare) X11 session with the portal, the real X11 grab works and reports Registered.
+            bool fallbackGlobalShortcutsUnavailable = LinuxRuntimeEnvironment.Detect().IsWayland;
+            _fallbackHotkeyService = new LinuxHotkeyService(fallbackGlobalShortcutsUnavailable);
             _fallbackHotkeyService.IsSuspended = IsSuspended;
             _fallbackHotkeyService.HotkeyTriggered += OnFallbackHotkeyTriggered;
 

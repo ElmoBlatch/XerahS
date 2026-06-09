@@ -42,6 +42,7 @@ public sealed class LinuxHotkeyService : IHotkeyService
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Dictionary<ushort, HotkeyRegistration> _registrations = new();
     private readonly object _lock = new();
+    private readonly bool _globalShortcutsUnavailable;
     private ushort _nextId = 1;
     private bool _isDisposed;
 
@@ -58,8 +59,13 @@ public sealed class LinuxHotkeyService : IHotkeyService
     public bool IsSuspended { get; set; }
     public Task<bool> ShowInteractiveConfigurationAsync() => Task.FromResult(false);
 
-    public LinuxHotkeyService()
+    public LinuxHotkeyService(bool globalShortcutsUnavailable = false)
     {
+        // When true, this is the X11 fallback on a native Wayland session that lacks a
+        // working GlobalShortcuts portal. The grab can still be installed (it works while a
+        // XWayland window has focus), but it cannot deliver hotkeys to a backgrounded app, so
+        // RegisterHotkey reports HotkeyStatus.GlobalShortcutsUnavailable rather than Registered.
+        _globalShortcutsUnavailable = globalShortcutsUnavailable;
         _display = NativeMethods.XOpenDisplay(null);
         if (_display == IntPtr.Zero)
         {
@@ -185,7 +191,7 @@ public sealed class LinuxHotkeyService : IHotkeyService
             }
 
             _registrations[hotkeyInfo.Id] = registration;
-            hotkeyInfo.Status = HotkeyStatus.Registered;
+            hotkeyInfo.Status = ResolveGrabbedStatus(_globalShortcutsUnavailable);
             return true;
         }
     }
@@ -304,6 +310,15 @@ public sealed class LinuxHotkeyService : IHotkeyService
         const uint ignoredModifierMask = NativeMethods.LockMask | NativeMethods.Mod2Mask;
         return (state & ~ignoredModifierMask) == baseModifierMask;
     }
+
+    /// <summary>
+    /// Maps a successful X11 grab to the status it should report. On a Wayland session without
+    /// a working GlobalShortcuts portal the grab cannot deliver the hotkey to a backgrounded
+    /// app, so report <see cref="HotkeyStatus.GlobalShortcutsUnavailable"/> instead of a
+    /// misleading <see cref="HotkeyStatus.Registered"/>. See XIP0078.
+    /// </summary>
+    internal static HotkeyStatus ResolveGrabbedStatus(bool globalShortcutsUnavailable) =>
+        globalShortcutsUnavailable ? HotkeyStatus.GlobalShortcutsUnavailable : HotkeyStatus.Registered;
 
     internal static uint GetModifierMaskForTesting(KeyModifiers modifiers) => GetModifierMask(modifiers);
 
