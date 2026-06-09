@@ -50,6 +50,26 @@ public class CustomUploaderItemBackwardCompatibilityTests
     }
 
     [Test]
+    public void MigrateLegacyResponseSyntax_MigratesWithoutVersion_AndDoesNotThrow()
+    {
+        // The per-instance override JSON used on the actual upload path is deserialized raw and often
+        // has no Version. MigrateLegacyResponseSyntax must migrate it without the version gate and
+        // without throwing "Unsupported" (which CheckBackwardCompatibility would do for an empty version).
+        var item = CustomUploaderItem.Init();
+        item.Version = "";
+        item.URL = "$json:url$";
+        item.DeletionURL = "$json:delete_url$";
+
+        Assert.DoesNotThrow(() => item.MigrateLegacyResponseSyntax());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.URL, Is.EqualTo("{json:url}"));
+            Assert.That(item.DeletionURL, Is.EqualTo("{json:delete_url}"));
+        });
+    }
+
+    [Test]
     public void CheckBackwardCompatibility_StillMigratesLegacyShareXVersionedFile()
     {
         // The existing path for genuinely old ShareX files (<= 13.7.1) keeps working.

@@ -358,7 +358,7 @@ namespace XerahS.Uploaders
                 // re-saved, keeping the legacy syntax while stamping a 0.x version. Migrate any field that
                 // still uses the legacy syntax so the response parser resolves it instead of returning the
                 // template verbatim. Per-field detection leaves already-modern `{...}` fields untouched.
-                MigrateLegacyResponseSyntaxIfPresent();
+                MigrateLegacyResponseSyntax();
                 return;
             }
 
@@ -453,7 +453,7 @@ namespace XerahS.Uploaders
         /// across every field, skipping fields that are already modern. Used for files that carry a
         /// modern/XerahS version stamp but still contain legacy syntax.
         /// </summary>
-        private void MigrateLegacyResponseSyntaxIfPresent()
+        public void MigrateLegacyResponseSyntax()
         {
             RequestURL = MigrateFieldIfLegacy(RequestURL);
 
