@@ -314,6 +314,26 @@ public class LinuxCaptureOrchestrationTests
     }
 
     [Test]
+    public void ShouldBlockCosmicScreenshotPortal_OnlyOnCosmicWayland()
+    {
+        var cosmic = new LinuxCaptureContext(isWayland: true, desktop: "COSMIC", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+        var gnome = new LinuxCaptureContext(isWayland: true, desktop: "GNOME", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+        var kde = new LinuxCaptureContext(isWayland: true, desktop: "KDE", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+        var cosmicX11 = new LinuxCaptureContext(isWayland: false, desktop: "COSMIC", compositor: "X11", isSandboxed: false, hasScreenshotPortal: true);
+
+        Assert.Multiple(() =>
+        {
+            // COSMIC's portal is the interactive cosmic-screenshot UI; XerahS must never invoke it.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmic), Is.True);
+            // Every other desktop keeps using the portal as before.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(gnome), Is.False);
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(kde), Is.False);
+            // A (hypothetical) COSMIC-on-X11 session can use normal X11 capture, so don't special-case it.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmicX11), Is.False);
+        });
+    }
+
+    [Test]
     public async Task Coordinator_CancelledProvider_StopsFurtherFallback()
     {
         int portalCalls = 0;

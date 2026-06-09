@@ -130,8 +130,20 @@ namespace XerahS.Platform.Linux
 
         Task<(SKBitmap? bitmap, uint response)> ILinuxCaptureRuntime.TryPortalCaptureAsync(LinuxCaptureKind kind, CaptureOptions? options)
         {
+            var portalContext = LinuxRuntimeContextDetector.Detect();
+
+            // COSMIC: never invoke the interactive XDG Screenshot portal — it is the cosmic-screenshot
+            // UI. XerahS captures via grim/slurp + its own overlay on COSMIC, so fail fast here and the
+            // cosmic-screenshot dialog never appears: the provider pipeline falls through to the
+            // wlroots/grim providers, and the region flow falls back to the XerahS overlay. See XIP0079.
+            if (ShouldBlockCosmicScreenshotPortal(portalContext))
+            {
+                DebugHelper.WriteLine("LinuxScreenCaptureService: COSMIC — not invoking the XDG Screenshot portal (cosmic-screenshot); using grim/slurp + overlay instead.");
+                return Task.FromResult<(SKBitmap? bitmap, uint response)>((null, PortalScreenCapture.PortalResponseFailed));
+            }
+
             if (kind == LinuxCaptureKind.FullScreen &&
-                ShouldSkipPortalAfterOverlaySelection(options, LinuxRuntimeContextDetector.Detect()))
+                ShouldSkipPortalAfterOverlaySelection(options, portalContext))
             {
                 DebugHelper.WriteLine(
                     "LinuxScreenCaptureService: skipping portal full-screen capture because the XerahS overlay follow-up on GNOME Wayland must not reopen portal UI after region selection.");
@@ -583,6 +595,14 @@ namespace XerahS.Platform.Linux
                 options?.LinuxDisallowPortalAfterOverlaySelection == true &&
                 string.Equals(context.Desktop, "GNOME", StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// COSMIC's XDG Screenshot portal is the interactive cosmic-screenshot UI. XerahS captures via
+        /// grim/slurp + its own overlay on COSMIC, so the portal must never be invoked there — it would
+        /// pop cosmic-screenshot for region/active-window captures and stall full-screen grabs. See XIP0079.
+        /// </summary>
+        internal static bool ShouldBlockCosmicScreenshotPortal(ILinuxCaptureContext context) =>
+            context.IsWayland && string.Equals(context.Desktop, "COSMIC", StringComparison.Ordinal);
 
         internal static SKRectI CreateDirectAreaCaptureRect(SKRect rect)
         {
