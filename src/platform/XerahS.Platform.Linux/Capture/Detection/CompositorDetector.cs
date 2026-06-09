@@ -44,7 +44,7 @@ internal static class CompositorDetector
             return "SWAY";
         }
 
-        if (desktop == "HYPRLAND" || desktop == "SWAY")
+        if (desktop == "HYPRLAND" || desktop == "SWAY" || desktop == "COSMIC")
         {
             return desktop;
         }

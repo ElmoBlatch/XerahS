@@ -39,6 +39,8 @@ public class DesktopEnvironmentDetectorTests
     [TestCase("X-Cinnamon", "CINNAMON")]
     [TestCase("LXQt", "LXQT")]
     [TestCase("LXDE", "LXDE")]
+    [TestCase("COSMIC", "COSMIC")]
+    [TestCase("cosmic", "COSMIC")]
     public void NormalizeHint_KnownDesktopFamily_ReturnsNormalizedDesktop(string hint, string expected)
     {
         Assert.That(DesktopEnvironmentDetector.NormalizeHint(hint), Is.EqualTo(expected));

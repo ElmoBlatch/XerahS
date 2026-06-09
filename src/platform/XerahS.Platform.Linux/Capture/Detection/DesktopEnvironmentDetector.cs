@@ -57,6 +57,11 @@ internal static class DesktopEnvironmentDetector
         {
             string normalized = token.ToUpperInvariant();
 
+            if (normalized.Contains("COSMIC"))
+            {
+                return "COSMIC";
+            }
+
             if (normalized.Contains("GNOME") ||
                 normalized.Contains("UBUNTU") ||
                 normalized.Contains("UNITY") ||

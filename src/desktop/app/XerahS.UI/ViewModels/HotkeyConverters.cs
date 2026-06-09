@@ -47,6 +47,7 @@ public class HotkeyStatusColorConverter : IValueConverter
                 HotkeyStatus.Failed => new SolidColorBrush(Colors.Red),
                 HotkeyStatus.NotConfigured => new SolidColorBrush(Colors.Orange),
                 HotkeyStatus.Recording => new SolidColorBrush(Colors.Yellow),
+                HotkeyStatus.GlobalShortcutsUnavailable => new SolidColorBrush(Colors.Goldenrod),
                 _ => new SolidColorBrush(Colors.Gray)
             };
         }
