@@ -144,6 +144,10 @@ public class WorkflowManager : IDisposable
             return false;
         }
 
+        // Carry the stable workflow id so a config-writing backend (e.g. the COSMIC backend) can
+        // emit a launch command that re-resolves the exact workflow on the next process start.
+        settings.HotkeyInfo.CommandIdentifier = settings.Id;
+
         bool result = _hotkeyService.RegisterHotkey(settings.HotkeyInfo);
 
         if (result)

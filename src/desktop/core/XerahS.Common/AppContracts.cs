@@ -68,6 +68,16 @@ public static class AppContracts
         /// This is the built-in "Screen recording" workflow shipped with XerahS.
         /// </summary>
         public const string DefaultRecordingWorkflowId = "67f116dc";
+
+        /// <summary>
+        /// Capture verb accepted by the GUI binary and spawned by COSMIC custom shortcuts:
+        /// <c>XerahS capture --workflow-id &lt;id&gt;</c>. The running instance resolves the workflow
+        /// by id and runs it (its job determines the capture kind).
+        /// </summary>
+        public const string CaptureVerb = "capture";
+
+        /// <summary>Option carrying the stable workflow id for <see cref="CaptureVerb"/>.</summary>
+        public const string WorkflowIdOption = "--workflow-id";
     }
 
     /// <summary>
