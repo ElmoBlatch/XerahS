@@ -177,5 +177,6 @@ public enum HotkeyStatus
     Registered,
     Failed,
     UnsupportedPlatform,
-    Recording  // User is currently editing this hotkey
+    Recording,  // User is currently editing this hotkey
+    GlobalShortcutsUnavailable  // Wayland session without a working GlobalShortcuts portal: an X11 grab cannot deliver the hotkey to a backgrounded app, so we do not claim Registered. See XIP0078.
 }

@@ -72,9 +72,23 @@ namespace XerahS.Platform.Linux
             bool hasGlobalShortcuts = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.GlobalShortcuts");
             bool hasInputCapture = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.InputCapture");
 
+            // On a Wayland session without the GlobalShortcuts portal (e.g. COSMIC, or a wlroots
+            // compositor that has not shipped it), the only fallback is the X11 XGrabKey backend,
+            // which cannot deliver global hotkeys to a backgrounded app on a native Wayland session.
+            // Flag the fallback so it reports HotkeyStatus.GlobalShortcutsUnavailable instead of a
+            // misleading Registered. See XIP0077 / XIP0078.
+            bool globalShortcutsUnavailable = isWayland && !hasGlobalShortcuts;
+            if (globalShortcutsUnavailable)
+            {
+                DebugHelper.WriteLine("Linux: Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
+                    "Global hotkeys cannot be delivered by the X11 fallback on this compositor; they will be " +
+                    "reported as GlobalShortcutsUnavailable. Bind a compositor custom shortcut to the xerahscli " +
+                    "CLI as a workaround (see XIP0077).");
+            }
+
             IHotkeyService hotkeyService = hasGlobalShortcuts
                 ? new WaylandPortalHotkeyService()
-                : new LinuxHotkeyService();
+                : new LinuxHotkeyService(globalShortcutsUnavailable);
 
             IInputService inputService = hasInputCapture
                 ? new WaylandPortalInputService()
