@@ -169,6 +169,47 @@ public class CosmicShortcutConfigWriterTests
     }
 
     [Test]
+    public void Upsert_WritesDescriptionAsRonSome()
+    {
+        // cosmic's Binding.description is Option<String> with no implicit_some, so RON requires
+        // Some("..."); a bare string makes cosmic reject the entire custom file (ExpectedOption) and
+        // fall back to defaults — silently killing every XerahS hotkey. See XIP0079 / binding.rs.
+        NewWriter().Upsert(new CosmicBinding(new[] { "Super" }, "Print"),
+            "/usr/bin/XerahS capture --workflow-id x");
+
+        string ron = File.ReadAllText(_file);
+        Assert.Multiple(() =>
+        {
+            Assert.That(ron, Does.Contain("description: Some(\"Managed by XerahS\")"));
+            Assert.That(ron, Does.Not.Contain("description: \"Managed by XerahS\""));
+        });
+    }
+
+    [Test]
+    public void Parse_ReadsSomeWrappedDescription_AsOwned()
+    {
+        var entries = CosmicShortcutsRon.Parse(
+            "{ (modifiers: [Super], key: \"p\", description: Some(\"Managed by XerahS\")): Spawn(\"x\"), }");
+        Assert.That(entries, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(entries[0].Binding.Description, Is.EqualTo("Managed by XerahS"));
+            Assert.That(entries[0].Binding.IsXerahsOwned, Is.True);
+        });
+    }
+
+    [Test]
+    public void Upsert_OwnedEntry_RoundTripsThroughSomeAsOwned()
+    {
+        // Reader must unwrap the Some(...) the writer now emits, or it can't re-identify its own
+        // entries for dedup/removal on the next run.
+        var writer = NewWriter();
+        var binding = new CosmicBinding(new[] { "Ctrl" }, "p");
+        writer.Upsert(binding, "/usr/bin/XerahS capture --workflow-id z");
+        Assert.That(writer.ContainsXerahsBinding(binding), Is.True);
+    }
+
+    [Test]
     public void Parse_RoundTrips_PreservingForeignValuesAndEscapes()
     {
         string original =
