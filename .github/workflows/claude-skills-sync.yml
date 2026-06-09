@@ -1,0 +1,26 @@
+name: Claude Skills Sync
+
+# Guardrail: the Claude Code skill mirror at .claude/skills/ must stay in sync
+# with the IDE-agnostic source of truth at .ai/skills/. If a skill was edited
+# under .ai/skills/ without regenerating the mirror, this check fails.
+# Fix locally with: .ai/skills/sync-claude-skills/scripts/sync-claude-skills.sh
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+permissions: read-all
+
+jobs:
+  claude-skills-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify .claude/skills is in sync with .ai/skills
+        run: bash .ai/skills/sync-claude-skills/scripts/sync-claude-skills.sh --check
