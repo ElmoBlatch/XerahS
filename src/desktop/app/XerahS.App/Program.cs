@@ -780,8 +780,15 @@ namespace XerahS.App
             {
                 try
                 {
-                    // Bring the main window to the foreground
-                    if (Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop &&
+                    // A forwarded capture verb (e.g. a COSMIC compositor shortcut, XIP0079) must run the
+                    // capture WITHOUT raising the XerahS window — otherwise the app steals foreground from
+                    // the window the user is trying to capture and covers the screen. Only bring the window
+                    // forward for non-capture activations (opening files, plugin installs, generic re-launch).
+                    bool isCaptureVerb = XerahS.Common.CaptureArgsParser.TryParse(args, out _);
+
+                    // Bring the main window to the foreground (skipped for capture verbs)
+                    if (!isCaptureVerb &&
+                        Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop &&
                         desktop.MainWindow != null)
                     {
                         var mainWindow = desktop.MainWindow;
