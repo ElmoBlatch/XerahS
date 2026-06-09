@@ -136,8 +136,8 @@ internal static class WaylandCliCapture
         };
     }
 
-    private static bool IsWlrootsDesktop(string? desktop) =>
-        desktop == "HYPRLAND" || desktop == "SWAY";
+    internal static bool IsWlrootsDesktop(string? desktop) =>
+        desktop == "HYPRLAND" || desktop == "SWAY" || desktop == "COSMIC";
 
     private static async Task<SKBitmap?> CaptureRegionAsync(string? desktop)
     {
