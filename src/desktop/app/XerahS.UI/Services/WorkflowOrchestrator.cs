@@ -350,6 +350,27 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
         await ExecuteWorkflowFromTriggerAsync(settings);
     }
 
+    /// <inheritdoc />
+    public async Task TriggerWorkflowByIdAsync(string workflowId)
+    {
+        if (string.IsNullOrEmpty(workflowId))
+        {
+            return;
+        }
+
+        var settings = SettingsManager.WorkflowsConfig?.Hotkeys?
+            .FirstOrDefault(w => w.Id == workflowId);
+
+        if (settings == null)
+        {
+            DebugHelper.WriteLine($"WorkflowOrchestrator: no workflow found for id '{workflowId}' (capture verb dispatch).");
+            return;
+        }
+
+        DebugHelper.WriteLine($"WorkflowOrchestrator: capture verb dispatch -> running workflow {settings} (id {workflowId}).");
+        await ExecuteWorkflowFromTriggerAsync(settings);
+    }
+
     private async Task ExecuteWorkflowFromTriggerAsync(Core.Hotkeys.WorkflowSettings settings)
     {
         if (settings == null)
