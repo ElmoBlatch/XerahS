@@ -42,6 +42,7 @@ internal static class PortalBackendDetector
         if (snapshot.HasHyprland) running.Add("hyprland");
         if (snapshot.HasLxqt) running.Add("lxqt");
         if (snapshot.HasXapp) running.Add("xapp");
+        if (snapshot.HasCosmic) running.Add("cosmic");
 
         return running.Count > 0 ? string.Join(", ", running) : "none detected";
     }
@@ -56,6 +57,7 @@ internal static class PortalBackendDetector
             "LXQT" => "lxqt",
             "HYPRLAND" => "hyprland",
             "SWAY" => "wlr",
+            "COSMIC" => "cosmic",
             _ => "unknown"
         };
     }
@@ -114,7 +116,8 @@ internal static class PortalBackendDetector
             HasWlr: IsProcessRunning("xdg-desktop-portal-wlr"),
             HasHyprland: IsProcessRunning("xdg-desktop-portal-hyprland"),
             HasLxqt: IsProcessRunning("xdg-desktop-portal-lxqt"),
-            HasXapp: IsProcessRunning("xdg-desktop-portal-xapp"));
+            HasXapp: IsProcessRunning("xdg-desktop-portal-xapp"),
+            HasCosmic: IsProcessRunning("xdg-desktop-portal-cosmic"));
     }
 
     private static bool IsProcessRunning(string processName)
@@ -153,6 +156,9 @@ internal static class PortalBackendDetector
                 if (backends.HasKde) return PortalBackendKind.Kde;
                 if (backends.HasGtk) return PortalBackendKind.Gtk;
                 break;
+            case "COSMIC":
+                if (backends.HasCosmic) return PortalBackendKind.Cosmic;
+                break;
         }
 
         var specializedBackends = new List<PortalBackendKind>();
@@ -160,6 +166,7 @@ internal static class PortalBackendDetector
         if (backends.HasKde) specializedBackends.Add(PortalBackendKind.Kde);
         if (backends.HasLxqt) specializedBackends.Add(PortalBackendKind.Lxqt);
         if (backends.HasXapp) specializedBackends.Add(PortalBackendKind.Xapp);
+        if (backends.HasCosmic) specializedBackends.Add(PortalBackendKind.Cosmic);
 
         if (specializedBackends.Count == 1)
         {
@@ -188,6 +195,7 @@ internal static class PortalBackendDetector
             PortalBackendKind.Lxqt => "lxqt",
             PortalBackendKind.Xapp => "xapp",
             PortalBackendKind.Gtk => "gtk",
+            PortalBackendKind.Cosmic => "cosmic",
             _ => null
         };
     }
@@ -200,7 +208,8 @@ internal readonly record struct PortalBackendSnapshot(
     bool HasWlr,
     bool HasHyprland,
     bool HasLxqt,
-    bool HasXapp);
+    bool HasXapp,
+    bool HasCosmic = false);
 
 internal readonly record struct X11PortalRegionSupport(
     bool HasKnownGoodX11PortalBackend,
@@ -214,5 +223,6 @@ internal enum PortalBackendKind
     Gnome,
     Kde,
     Lxqt,
-    Xapp
+    Xapp,
+    Cosmic
 }

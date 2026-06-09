@@ -261,6 +261,16 @@ public class WorkflowManager : IDisposable
     }
 
     /// <summary>
+    /// Get hotkeys that registered locally but cannot fire globally because the current Wayland
+    /// compositor exposes no org.freedesktop.portal.GlobalShortcuts portal (e.g. COSMIC). These are
+    /// not failures - the platform simply cannot deliver them. See XIP0077 / XIP0078.
+    /// </summary>
+    public List<WorkflowSettings> GetGlobalShortcutsUnavailableHotkeys()
+    {
+        return Workflows.Where(h => h.HotkeyInfo.Status == HotkeyStatus.GlobalShortcutsUnavailable).ToList();
+    }
+
+    /// <summary>
     /// Show warning for failed hotkeys (placeholder - will be UI-specific)
     /// </summary>
     private void ShowFailedHotkeys()
@@ -270,6 +280,18 @@ public class WorkflowManager : IDisposable
         {
             Debug.WriteLine($"Warning: {failed.Count} hotkey(s) failed to register:");
             foreach (var h in failed)
+            {
+                Debug.WriteLine($"  - {h}");
+            }
+        }
+
+        var unavailable = GetGlobalShortcutsUnavailableHotkeys();
+        if (unavailable.Count > 0)
+        {
+            Debug.WriteLine($"Warning: {unavailable.Count} hotkey(s) cannot fire on this compositor - it has no " +
+                "org.freedesktop.portal.GlobalShortcuts portal, so global hotkeys are unavailable (common on COSMIC).");
+            Debug.WriteLine("  Workaround: bind a compositor custom shortcut to the xerahscli CLI (see XIP0077).");
+            foreach (var h in unavailable)
             {
                 Debug.WriteLine($"  - {h}");
             }
