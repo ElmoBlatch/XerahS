@@ -123,20 +123,29 @@ public sealed class AvaloniaClipboardService : IClipboardService
     /// bytes → MemoryStream → Bitmap → DataTransfer + DataTransferItem → SetDataAsync.
     /// Using SetDataAsync (and DataTransfer) ensures the same code path works on all OSes (Windows, macOS, Linux).
     /// </summary>
+    // X11 (and some other backends) serve clipboard data lazily — the bitmap is only serialized when a
+    // paste target requests it. Keep the owned transfer (and thus its bitmap) referenced until the next
+    // copy so it is not garbage-collected/disposed in the meantime; otherwise serving it later throws
+    // ObjectDisposedException ('Ref<IBitmapImpl>') inside Avalonia's X11 event loop and crashes the app.
+    private static DataTransfer? _ownedClipboardImage;
+
     internal static async Task SetImageBytesAsync(IClipboard clipboard, byte[] bytes)
     {
         if (clipboard == null || bytes == null || bytes.Length == 0)
             return;
 
-        using (var stream = new MemoryStream(bytes))
-        {
-            var bitmap = new Bitmap(stream);
-            var data = new DataTransfer();
-            var item = new DataTransferItem();
-            item.SetBitmap(bitmap);
-            data.Add(item);
-            await clipboard.SetDataAsync(data);
-        }
+        // Avalonia's Bitmap decodes the stream on construction, so the stream can be collected after;
+        // the bitmap itself must outlive this method (held via _ownedClipboardImage) for lazy serving.
+        var stream = new MemoryStream(bytes);
+        var bitmap = new Bitmap(stream);
+        var data = new DataTransfer();
+        var item = new DataTransferItem();
+        item.SetBitmap(bitmap);
+        data.Add(item);
+
+        _ownedClipboardImage = data;
+
+        await clipboard.SetDataAsync(data);
     }
 
     public string[]? GetFileDropList()
