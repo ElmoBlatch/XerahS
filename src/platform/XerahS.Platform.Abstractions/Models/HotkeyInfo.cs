@@ -70,6 +70,14 @@ public class HotkeyInfo
     public string? CommandIdentifier { get; set; }
 
     /// <summary>
+    /// Spawn action verb for config-writing hotkey backends (e.g. COSMIC). When set to a non-capture
+    /// verb such as "assistant" or "command-palette", the backend writes a launch command for that
+    /// action instead of the default capture verb. Runtime only; not persisted. See XIP0079.
+    /// </summary>
+    [System.Runtime.Serialization.IgnoreDataMember]
+    public string? CommandVerb { get; set; }
+
+    /// <summary>
     /// Whether this is a valid hotkey (has a key assigned)
     /// </summary>
     public bool IsValid => Key != Key.None && !IsOnlyModifiers;
