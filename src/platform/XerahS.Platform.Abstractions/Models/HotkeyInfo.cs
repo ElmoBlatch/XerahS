@@ -62,6 +62,14 @@ public class HotkeyInfo
     public string? NativeTriggerDescription { get; set; }
 
     /// <summary>
+    /// Stable command identifier (the owning workflow's Id) used by config-writing hotkey
+    /// backends — e.g. the COSMIC backend, which emits a launch command that re-resolves the
+    /// workflow on the next process start. Runtime only; not persisted on the hotkey itself.
+    /// </summary>
+    [System.Runtime.Serialization.IgnoreDataMember]
+    public string? CommandIdentifier { get; set; }
+
+    /// <summary>
     /// Whether this is a valid hotkey (has a key assigned)
     /// </summary>
     public bool IsValid => Key != Key.None && !IsOnlyModifiers;
