@@ -32,5 +32,11 @@ namespace XerahS.UI.Services;
 /// </summary>
 public static class WorkflowOrchestratorAccessor
 {
-    public static IWorkflowOrchestrator? Instance { get; set; }
+    private static volatile IWorkflowOrchestrator? _instance;
+
+    public static IWorkflowOrchestrator? Instance
+    {
+        get => _instance;
+        set => _instance = value;
+    }
 }

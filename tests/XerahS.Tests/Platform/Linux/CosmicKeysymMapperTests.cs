@@ -55,4 +55,21 @@ public class CosmicKeysymMapperTests
         Assert.That(CosmicKeysymMapper.TryMap(Key.None, KeyModifiers.Control, out var binding), Is.False);
         Assert.That(binding, Is.Null);
     }
+
+    // Keys outside the known xkb-keysym categories must NOT map: their raw enum name (e.g.
+    // "MediaNextTrack") is not a valid xkb keysym, and cosmic-comp would silently drop it.
+    [TestCase(Key.MediaNextTrack)]
+    [TestCase(Key.BrowserBack)]
+    [TestCase(Key.Oem8)]
+    public void MapKey_UnmappableKey_ReturnsNull(Key key)
+    {
+        Assert.That(CosmicKeysymMapper.MapKey(key), Is.Null);
+    }
+
+    [Test]
+    public void TryMap_UnmappableKey_Fails()
+    {
+        Assert.That(CosmicKeysymMapper.TryMap(Key.MediaNextTrack, KeyModifiers.Control, out var binding), Is.False);
+        Assert.That(binding, Is.Null);
+    }
 }

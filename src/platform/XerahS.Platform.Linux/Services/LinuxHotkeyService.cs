@@ -443,6 +443,22 @@ public sealed class LinuxHotkeyService : IHotkeyService
                key.ToString() == "Print";
     }
 
+    /// <summary>
+    /// True when the key maps to a keysym name guaranteed to be a real xkb keysym: the curated
+    /// special keys, Print-like keys, letters, digits, F-keys, and numpad digits. Keys outside these
+    /// categories fall back to the raw enum name (e.g. "MediaNextTrack"), which is NOT a valid xkb
+    /// keysym. X11 tolerates that (the grab simply fails), but the COSMIC writer would persist a dead
+    /// binding while reporting success, so <see cref="CosmicKeysymMapper"/> uses this to fail honestly.
+    /// </summary>
+    internal static bool HasKnownKeysymName(Key key) =>
+        key != Key.None &&
+        (IsPrintLikeKey(key)
+         || SpecialKeyNames.ContainsKey(key)
+         || (key >= Key.A && key <= Key.Z)
+         || (key >= Key.D0 && key <= Key.D9)
+         || (key >= Key.F1 && key <= Key.F24)
+         || (key >= Key.NumPad0 && key <= Key.NumPad9));
+
     private static readonly Dictionary<Key, string> SpecialKeyNames = new()
     {
         { Key.PrintScreen, "Print" },

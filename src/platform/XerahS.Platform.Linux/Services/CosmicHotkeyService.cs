@@ -138,13 +138,21 @@ internal sealed class CosmicHotkeyService : IHotkeyService
     private string BuildSpawnCommand(string? workflowId)
     {
         string processPath = _processPathProvider() ?? "XerahS";
-        string command = $"{processPath} {AppContracts.Cli.CaptureVerb}";
+        string command = $"{ShellQuote(processPath)} {AppContracts.Cli.CaptureVerb}";
         if (!string.IsNullOrEmpty(workflowId))
         {
             command += $" {AppContracts.Cli.WorkflowIdOption} {workflowId}";
         }
         return command;
     }
+
+    // cosmic-comp executes Spawn(String) via `/bin/sh -c "<command>"` (cosmic-comp
+    // src/input/actions.rs), so the executable path must be POSIX shell-quoted or a path containing
+    // spaces/metacharacters would be word-split and the capture launch would fail. Wrap in single
+    // quotes and escape any embedded single quote as '\''. The workflow id is a GUID so it is safe
+    // unquoted. See XIP0079.
+    private static string ShellQuote(string value) =>
+        "'" + value.Replace("'", "'\\''") + "'";
 
     public void Dispose()
     {
