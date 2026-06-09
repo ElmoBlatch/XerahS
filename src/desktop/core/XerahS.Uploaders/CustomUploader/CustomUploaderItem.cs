@@ -351,8 +351,14 @@ namespace XerahS.Uploaders
 
             if (isXerahSVersion)
             {
-                // XerahS custom uploaders use modern syntax, no migration needed
                 CheckRequestURL();
+
+                // A XerahS-stamped file can still hold legacy ShareX `$func:arg$` response syntax — e.g.
+                // a service-exported .sxcu (ShareX 13.x format using $json:url$) that XerahS imported and
+                // re-saved, keeping the legacy syntax while stamping a 0.x version. Migrate any field that
+                // still uses the legacy syntax so the response parser resolves it instead of returning the
+                // template verbatim. Per-field detection leaves already-modern `{...}` fields untouched.
+                MigrateLegacyResponseSyntaxIfPresent();
                 return;
             }
 
@@ -440,6 +446,79 @@ namespace XerahS.Uploaders
             }
 
             return sbInput.ToString();
+        }
+
+        /// <summary>
+        /// Migrates legacy ShareX <c>$func:arg$</c> response syntax to the modern <c>{func:arg}</c> form
+        /// across every field, skipping fields that are already modern. Used for files that carry a
+        /// modern/XerahS version stamp but still contain legacy syntax.
+        /// </summary>
+        private void MigrateLegacyResponseSyntaxIfPresent()
+        {
+            RequestURL = MigrateFieldIfLegacy(RequestURL);
+
+            if (Parameters != null)
+            {
+                foreach (string key in Parameters.Keys.ToList())
+                {
+                    Parameters[key] = MigrateFieldIfLegacy(Parameters[key]);
+                }
+            }
+
+            if (Headers != null)
+            {
+                foreach (string key in Headers.Keys.ToList())
+                {
+                    Headers[key] = MigrateFieldIfLegacy(Headers[key]);
+                }
+            }
+
+            if (Arguments != null)
+            {
+                foreach (string key in Arguments.Keys.ToList())
+                {
+                    Arguments[key] = MigrateFieldIfLegacy(Arguments[key]);
+                }
+            }
+
+            if (!string.IsNullOrEmpty(Data) && Data.IndexOf('{') < 0)
+            {
+                Data = Data.Replace("$input$", "{input}", StringComparison.OrdinalIgnoreCase)
+                    .Replace("$filename$", "{filename}", StringComparison.OrdinalIgnoreCase);
+            }
+
+            URL = MigrateFieldIfLegacy(URL);
+            ThumbnailURL = MigrateFieldIfLegacy(ThumbnailURL);
+            DeletionURL = MigrateFieldIfLegacy(DeletionURL);
+            ErrorMessage = MigrateFieldIfLegacy(ErrorMessage);
+        }
+
+        /// <summary>
+        /// Runs <see cref="MigrateOldSyntax"/> on a field only when it still uses the legacy ShareX
+        /// <c>$func:arg$</c> syntax. Fields that already use the modern <c>{func:arg}</c> form (or contain
+        /// literal braces) are returned unchanged, because <see cref="MigrateOldSyntax"/> is not
+        /// idempotent and would escape their braces.
+        /// </summary>
+        private string MigrateFieldIfLegacy(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+            {
+                return input;
+            }
+
+            // Already modern (or contains literal braces): never re-run the migration.
+            if (input.IndexOf('{') >= 0)
+            {
+                return input;
+            }
+
+            // Only convert when a legacy `$func...$` token pair is actually present.
+            if (!System.Text.RegularExpressions.Regex.IsMatch(input, @"\$[A-Za-z][^$]*\$"))
+            {
+                return input;
+            }
+
+            return MigrateOldSyntax(input);
         }
 
         private void CheckRequestURL()
