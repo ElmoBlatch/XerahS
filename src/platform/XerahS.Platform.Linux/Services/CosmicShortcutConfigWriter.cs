@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using XerahS.Common;
 
 namespace XerahS.Platform.Linux.Services;
 
@@ -107,7 +108,7 @@ internal static class CosmicShortcutsRon
         var result = new List<CosmicShortcutEntry>();
         if (string.IsNullOrWhiteSpace(content)) return result;
 
-        string body = ExtractMapBody(content!);
+        string body = ExtractMapBody(StripComments(content!));
         int i = 0, n = body.Length;
         while (i < n)
         {
@@ -179,6 +180,49 @@ internal static class CosmicShortcutsRon
         int open = content.IndexOf('{');
         int close = content.LastIndexOf('}');
         return (open < 0 || close <= open) ? string.Empty : content.Substring(open + 1, close - open - 1);
+    }
+
+    /// <summary>
+    /// Remove RON line (<c>//</c>) and block (<c>/* */</c>) comments while preserving string literals,
+    /// so a brace inside a comment cannot corrupt map extraction or silently drop foreign entries.
+    /// See XIP0079.
+    /// </summary>
+    internal static string StripComments(string content)
+    {
+        var sb = new StringBuilder(content.Length);
+        bool inString = false;
+        for (int i = 0; i < content.Length; i++)
+        {
+            char c = content[i];
+            if (inString)
+            {
+                sb.Append(c);
+                if (c == '\\' && i + 1 < content.Length) { sb.Append(content[i + 1]); i++; }
+                else if (c == '"') { inString = false; }
+                continue;
+            }
+
+            if (c == '"') { inString = true; sb.Append(c); continue; }
+
+            if (c == '/' && i + 1 < content.Length && content[i + 1] == '/')
+            {
+                i += 2;
+                while (i < content.Length && content[i] != '\n') i++;
+                if (i < content.Length) sb.Append('\n'); // keep the line break
+                continue;
+            }
+
+            if (c == '/' && i + 1 < content.Length && content[i + 1] == '*')
+            {
+                i += 2;
+                while (i + 1 < content.Length && !(content[i] == '*' && content[i + 1] == '/')) i++;
+                i++; // skip the closing '*'; the loop's i++ skips the '/'
+                continue;
+            }
+
+            sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     /// <summary>Given s[start]=='(', return the index just past the matching ')'.</summary>
@@ -338,6 +382,17 @@ internal sealed class CosmicShortcutConfigWriter
     public void Upsert(CosmicBinding binding, string spawnCommand)
     {
         var entries = ReadEntries();
+
+        // cosmic's custom map holds one action per (modifiers,key), so claiming this combo replaces
+        // whatever is bound to it. If that is a user's own (non-XerahS) binding we cannot keep both,
+        // and Remove()/UnregisterAll() will not restore it later — surface that instead of destroying
+        // it silently. See XIP0079.
+        if (entries.Any(e => !e.Binding.IsXerahsOwned && e.Binding.SameBindingAs(binding)))
+        {
+            string combo = string.Join("+", binding.OrderedModifiers().Append(binding.Key));
+            DebugHelper.WriteLine($"CosmicShortcutConfigWriter: replacing a non-XerahS custom shortcut on {combo}; it will not be restored on unregister.");
+        }
+
         entries.RemoveAll(e => e.Binding.SameBindingAs(binding));
 
         var owned = new CosmicBinding(binding.Modifiers, binding.Key, ManagedDescription);
@@ -380,8 +435,15 @@ internal sealed class CosmicShortcutConfigWriter
 
         string content = CosmicShortcutsRon.Serialize(entries);
         // Atomic replace: cosmic-comp watches and live-reloads this file, so never leave it half-written.
+        // Flush the temp file's bytes to disk before the rename so a crash can't leave cosmic-comp
+        // reloading a renamed-but-empty file. The rename itself is atomic (same directory/filesystem).
         string tmp = _customFilePath + ".xerahs-tmp-" + Guid.NewGuid().ToString("N");
-        File.WriteAllText(tmp, content);
+        byte[] bytes = Encoding.UTF8.GetBytes(content);
+        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Flush(flushToDisk: true);
+        }
         File.Move(tmp, _customFilePath, overwrite: true);
     }
 }

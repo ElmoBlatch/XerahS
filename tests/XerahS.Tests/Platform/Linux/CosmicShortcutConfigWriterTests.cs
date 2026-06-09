@@ -118,6 +118,57 @@ public class CosmicShortcutConfigWriterTests
     }
 
     [Test]
+    public void Upsert_OnComboHeldByForeignEntry_ReplacesWithOwnedSingleEntry()
+    {
+        // COSMIC's custom map holds one action per (modifiers,key), so taking a combo a user already
+        // bound necessarily replaces it. Pin that behavior: exactly one XerahS-owned entry remains.
+        File.WriteAllText(_file, "{ (modifiers: [Ctrl, Shift], key: \"4\"): Spawn(\"user-thing\"), }");
+
+        NewWriter().Upsert(new CosmicBinding(new[] { "Ctrl", "Shift" }, "4"),
+            "/usr/bin/XerahS capture --workflow-id z");
+
+        string ron = File.ReadAllText(_file);
+        var entries = CosmicShortcutsRon.Parse(ron);
+        Assert.Multiple(() =>
+        {
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].Binding.IsXerahsOwned, Is.True);
+            Assert.That(ron, Does.Not.Contain("user-thing"));
+        });
+    }
+
+    [Test]
+    public void Parse_IgnoresLineAndBlockComments()
+    {
+        // A user (or the XIP examples) may hand-add comments; a brace inside a comment must not
+        // corrupt map extraction, and entries must still parse. See XIP0079.
+        string ron =
+            "// top comment with a brace { not real\n" +
+            "{\n" +
+            "    // a line comment\n" +
+            "    (modifiers: [Super], key: \"q\"): Spawn(\"foo\"), /* inline */\n" +
+            "    /* block\n  comment */\n" +
+            "    (modifiers: [], key: \"Print\"): Spawn(\"bar\"),\n" +
+            "}\n";
+
+        Assert.That(CosmicShortcutsRon.Parse(ron), Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public void Upsert_OnUnparseableFile_LeavesFileUntouched()
+    {
+        // Fail-closed: an unparseable custom file must never be overwritten (would destroy foreign data).
+        string garbage = "{ this is (not valid RON at all ][ }";
+        File.WriteAllText(_file, garbage);
+
+        Assert.Throws<FormatException>(() =>
+            NewWriter().Upsert(new CosmicBinding(Array.Empty<string>(), "Print"),
+                "/usr/bin/XerahS capture --workflow-id z"));
+
+        Assert.That(File.ReadAllText(_file), Is.EqualTo(garbage));
+    }
+
+    [Test]
     public void Parse_RoundTrips_PreservingForeignValuesAndEscapes()
     {
         string original =

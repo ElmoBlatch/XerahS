@@ -42,6 +42,12 @@ internal static class CosmicKeysymMapper
     {
         if (key == Key.None) return null;
 
+        // Only emit keysyms cosmic-comp's xkb name lookup will recognize. The X11 backend tolerates
+        // unknown names (XStringToKeysym returns 0 and the grab simply fails), but the COSMIC writer
+        // would persist a dead binding (e.g. key: "MediaNextTrack") and falsely report Registered, so
+        // reject anything outside the known-keysym categories and let TryMap fail honestly. See XIP0079.
+        if (!LinuxHotkeyService.HasKnownKeysymName(key)) return null;
+
         var candidates = LinuxHotkeyService.GetCandidateKeysymNames(key);
         string? name = candidates.Count > 0 ? candidates[0] : null;
         if (string.IsNullOrEmpty(name)) return null;

@@ -294,7 +294,7 @@ public class WorkflowManager : IDisposable
         {
             Debug.WriteLine($"Warning: {unavailable.Count} hotkey(s) cannot fire on this compositor - it has no " +
                 "org.freedesktop.portal.GlobalShortcuts portal, so global hotkeys are unavailable (common on COSMIC).");
-            Debug.WriteLine("  Workaround: bind a compositor custom shortcut to the xerahscli CLI (see XIP0077).");
+            Debug.WriteLine("  Workaround: bind a compositor custom shortcut to run \"XerahS capture --workflow-id <id>\" (see XIP0077/XIP0078).");
             foreach (var h in unavailable)
             {
                 Debug.WriteLine($"  - {h}");

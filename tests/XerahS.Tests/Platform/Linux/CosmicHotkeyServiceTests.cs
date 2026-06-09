@@ -44,7 +44,7 @@ public class CosmicHotkeyServiceTests
             Assert.That(ok, Is.True);
             Assert.That(info.Status, Is.EqualTo(HotkeyStatus.Registered));
             Assert.That(ron, Does.Contain("key: \"Print\""));
-            Assert.That(ron, Does.Contain("Spawn(\"/usr/bin/XerahS capture --workflow-id abc123\")"));
+            Assert.That(ron, Does.Contain("Spawn(\"'/usr/bin/XerahS' capture --workflow-id abc123\")"));
             Assert.That(service.IsRegistered(info), Is.True);
         });
     }
@@ -106,6 +106,37 @@ public class CosmicHotkeyServiceTests
         {
             Assert.That(ron, Does.Contain("user-thing"));
             Assert.That(ron, Does.Not.Contain("XerahS"));
+        });
+    }
+
+    [Test]
+    public void RegisterHotkey_ShellQuotesProcessPathContainingSpaces()
+    {
+        // cosmic-comp runs Spawn(String) via `/bin/sh -c`, so an install path with spaces must be
+        // shell-quoted or it is word-split and the capture launch fails. See XIP0079.
+        var service = new CosmicHotkeyService(
+            new CosmicShortcutConfigWriter(_file), () => "/home/a b/My Apps/XerahS");
+        var info = new HotkeyInfo(Key.PrintScreen, KeyModifiers.None) { CommandIdentifier = "id1" };
+
+        service.RegisterHotkey(info);
+        string ron = File.ReadAllText(_file);
+
+        Assert.That(ron, Does.Contain("Spawn(\"'/home/a b/My Apps/XerahS' capture --workflow-id id1\")"));
+    }
+
+    [Test]
+    public void RegisterHotkey_UnmappableKey_FailsWithoutWriting()
+    {
+        // A real but non-xkb key (e.g. media key) must report Failed honestly, not write a dead
+        // binding while claiming Registered. See XIP0079.
+        var service = NewService();
+        var info = new HotkeyInfo(Key.MediaNextTrack, KeyModifiers.Control);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(service.RegisterHotkey(info), Is.False);
+            Assert.That(info.Status, Is.EqualTo(HotkeyStatus.Failed));
+            Assert.That(File.Exists(_file), Is.False);
         });
     }
 }
