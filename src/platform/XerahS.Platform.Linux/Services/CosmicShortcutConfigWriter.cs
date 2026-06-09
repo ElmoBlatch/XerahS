@@ -166,7 +166,9 @@ internal static class CosmicShortcutsRon
           .Append('"');
         if (!string.IsNullOrEmpty(binding.Description))
         {
-            sb.Append(", description: \"").Append(EscapeForString(binding.Description!)).Append('"');
+            // cosmic's Binding.description is Option<String> (no implicit_some), so it must be
+            // serialized as Some("..."); a bare "..." makes cosmic reject the whole file. See XIP0079.
+            sb.Append(", description: Some(\"").Append(EscapeForString(binding.Description!)).Append("\")");
         }
         sb.Append(')');
         return sb.ToString();
@@ -281,8 +283,25 @@ internal static class CosmicShortcutsRon
         var fields = ParseStructFields(keyText);
         var modifiers = fields.TryGetValue("modifiers", out var modsRaw) ? ParseList(modsRaw) : new List<string>();
         string key = fields.TryGetValue("key", out var keyRaw) ? ParseRonString(keyRaw) : string.Empty;
-        string? description = fields.TryGetValue("description", out var descRaw) ? ParseRonString(descRaw) : null;
+        string? description = fields.TryGetValue("description", out var descRaw) ? ParseOptionalRonString(descRaw) : null;
         return new CosmicBinding(modifiers, key, description);
+    }
+
+    /// <summary>
+    /// Parse a RON <c>Option&lt;String&gt;</c> field value: unwraps <c>Some("...")</c> (cosmic's
+    /// serialized form for description) and treats <c>None</c> as absent. Also accepts a bare
+    /// <c>"..."</c> for backward compatibility with files written before the Some(...) fix. See
+    /// cosmic-settings-daemon shortcuts/binding.rs — description is Option&lt;String&gt;, no implicit_some.
+    /// </summary>
+    private static string? ParseOptionalRonString(string raw)
+    {
+        raw = raw.Trim();
+        if (raw == "None") return null;
+        if (raw.StartsWith("Some(", StringComparison.Ordinal) && raw.EndsWith(")", StringComparison.Ordinal))
+        {
+            raw = raw.Substring(5, raw.Length - 6).Trim();
+        }
+        return ParseRonString(raw);
     }
 
     /// <summary>Parse the top-level fields of a RON struct <c>(name: value, name: value)</c>.</summary>
