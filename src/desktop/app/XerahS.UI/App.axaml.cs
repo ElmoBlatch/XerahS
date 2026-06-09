@@ -277,6 +277,7 @@ public partial class App : Application
             EditorServices.Clipboard = new Services.EditorClipboardAdapter();
 
             _workflowOrchestrator = new WorkflowOrchestrator(taskManager, screenRecordingCoordinator);
+            Services.WorkflowOrchestratorAccessor.Instance = _workflowOrchestrator;
             _trayIconController = new TrayIconController();
             _workflowOrchestrator.Start(desktop, _baseTitle);
             TrayIconHelper.Instance.Initialize(screenRecordingCoordinator);

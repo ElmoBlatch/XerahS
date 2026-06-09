@@ -23,18 +23,14 @@
 
 #endregion License Information (GPL v3)
 
-using Avalonia.Controls.ApplicationLifetimes;
-
 namespace XerahS.UI.Services;
 
-public interface IWorkflowOrchestrator
+/// <summary>
+/// Exposes the running <see cref="IWorkflowOrchestrator"/> to static entry points (e.g. the
+/// single-instance argument handler in Program), which must dispatch a forwarded capture verb
+/// into the live capture pipeline. Set by <c>App</c> once the orchestrator is created.
+/// </summary>
+public static class WorkflowOrchestratorAccessor
 {
-    Core.Hotkeys.WorkflowManager? WorkflowManager { get; }
-    void Start(IClassicDesktopStyleApplicationLifetime desktop, string baseTitle);
-
-    /// <summary>
-    /// Resolve a workflow by its stable id and run it through the same path as a hotkey trigger.
-    /// Used by the COSMIC compositor-shortcut dispatch (XIP0079).
-    /// </summary>
-    System.Threading.Tasks.Task TriggerWorkflowByIdAsync(string workflowId);
+    public static IWorkflowOrchestrator? Instance { get; set; }
 }

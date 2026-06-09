@@ -29,6 +29,25 @@ using XerahS.Platform.Linux.Services;
 using XerahS.RegionCapture.ScreenRecording;
 namespace XerahS.Platform.Linux
 {
+    /// <summary>
+    /// Which hotkey backend the Linux platform binds, decided from session/portal/desktop facts.
+    /// See XIP0077 / XIP0078 / XIP0079.
+    /// </summary>
+    internal enum LinuxHotkeyBackend
+    {
+        /// <summary>org.freedesktop.portal.GlobalShortcuts is available (works on any compositor that ships it).</summary>
+        Portal,
+
+        /// <summary>COSMIC Wayland session without the portal: write a compositor custom shortcut (XIP0079).</summary>
+        Cosmic,
+
+        /// <summary>Wayland session without the portal and without a supported writer: the X11 grab cannot deliver, so report unavailable (XIP0078).</summary>
+        X11Unavailable,
+
+        /// <summary>Native X11 session: the X11 grab works.</summary>
+        X11,
+    }
+
     public static class LinuxPlatform
     {
         public static void Initialize(IScreenCaptureService? screenCaptureService = null, bool useWaylandPortalServices = true)
@@ -72,23 +91,37 @@ namespace XerahS.Platform.Linux
             bool hasGlobalShortcuts = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.GlobalShortcuts");
             bool hasInputCapture = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.InputCapture");
 
-            // On a Wayland session without the GlobalShortcuts portal (e.g. COSMIC, or a wlroots
-            // compositor that has not shipped it), the only fallback is the X11 XGrabKey backend,
-            // which cannot deliver global hotkeys to a backgrounded app on a native Wayland session.
-            // Flag the fallback so it reports HotkeyStatus.GlobalShortcutsUnavailable instead of a
-            // misleading Registered. See XIP0077 / XIP0078.
-            bool globalShortcutsUnavailable = isWayland && !hasGlobalShortcuts;
-            if (globalShortcutsUnavailable)
+            // Pick the hotkey backend from session/portal/desktop facts. On a Wayland session without
+            // the GlobalShortcuts portal the X11 XGrabKey backend cannot deliver global hotkeys to a
+            // backgrounded app, so COSMIC gets the compositor-shortcut writer (XIP0079) and other
+            // compositors honestly report GlobalShortcutsUnavailable (XIP0078). See XIP0077.
+            LinuxHotkeyBackend hotkeyBackend = SelectHotkeyBackend(isWayland, hasGlobalShortcuts, environment.Desktop);
+            IHotkeyService hotkeyService;
+            switch (hotkeyBackend)
             {
-                DebugHelper.WriteLine("Linux: Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
-                    "Global hotkeys cannot be delivered by the X11 fallback on this compositor; they will be " +
-                    "reported as GlobalShortcutsUnavailable. Bind a compositor custom shortcut to the xerahscli " +
-                    "CLI as a workaround (see XIP0077).");
-            }
+                case LinuxHotkeyBackend.Portal:
+                    hotkeyService = new WaylandPortalHotkeyService();
+                    break;
 
-            IHotkeyService hotkeyService = hasGlobalShortcuts
-                ? new WaylandPortalHotkeyService()
-                : new LinuxHotkeyService(globalShortcutsUnavailable);
+                case LinuxHotkeyBackend.Cosmic:
+                    DebugHelper.WriteLine("Linux: COSMIC Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
+                        "Binding global hotkeys through the COSMIC compositor's custom-shortcut config so cosmic-comp " +
+                        "spawns XerahS on the keypress (XIP0079).");
+                    hotkeyService = new CosmicHotkeyService();
+                    break;
+
+                case LinuxHotkeyBackend.X11Unavailable:
+                    DebugHelper.WriteLine("Linux: Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
+                        "Global hotkeys cannot be delivered by the X11 fallback on this compositor; they will be " +
+                        "reported as GlobalShortcutsUnavailable. Bind a compositor custom shortcut to the XerahS " +
+                        "capture verb as a workaround (see XIP0077 / XIP0078).");
+                    hotkeyService = new LinuxHotkeyService(globalShortcutsUnavailable: true);
+                    break;
+
+                default:
+                    hotkeyService = new LinuxHotkeyService(globalShortcutsUnavailable: false);
+                    break;
+            }
 
             IInputService inputService = hasInputCapture
                 ? new WaylandPortalInputService()
@@ -128,6 +161,30 @@ namespace XerahS.Platform.Linux
             // Initialize theme service for dark mode detection
             PlatformServices.Theme = new LinuxThemeService();
             DebugHelper.WriteLine($"Linux: Theme service initialized. Dark mode preferred: {PlatformServices.Theme.IsDarkModePreferred}");
+        }
+
+        /// <summary>
+        /// Decides which <see cref="LinuxHotkeyBackend"/> to bind from the session facts. Pure and
+        /// deterministic so it can be unit-tested without a live session. See XIP0077/XIP0078/XIP0079.
+        /// </summary>
+        internal static LinuxHotkeyBackend SelectHotkeyBackend(bool isWayland, bool hasGlobalShortcuts, string? desktop)
+        {
+            if (hasGlobalShortcuts)
+            {
+                return LinuxHotkeyBackend.Portal;
+            }
+
+            if (isWayland && string.Equals(desktop, "COSMIC", System.StringComparison.Ordinal))
+            {
+                return LinuxHotkeyBackend.Cosmic;
+            }
+
+            if (isWayland)
+            {
+                return LinuxHotkeyBackend.X11Unavailable;
+            }
+
+            return LinuxHotkeyBackend.X11;
         }
 
         private static IStartupService CreateStartupService(LinuxRuntimeEnvironment environment)

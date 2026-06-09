@@ -824,6 +824,22 @@ namespace XerahS.App
                 return;
             }
 
+            // A forwarded capture verb (e.g. spawned by a COSMIC custom shortcut, XIP0079) is not a
+            // file/plugin path — dispatch it into the running capture pipeline and stop.
+            if (XerahS.Common.CaptureArgsParser.TryParse(args, out string? captureWorkflowId))
+            {
+                if (!string.IsNullOrEmpty(captureWorkflowId))
+                {
+                    XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}): dispatching workflow {captureWorkflowId}.");
+                    DispatchCaptureWorkflow(captureWorkflowId!);
+                }
+                else
+                {
+                    XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}) received without {XerahS.Common.AppContracts.Cli.WorkflowIdOption}; ignoring.");
+                }
+                return;
+            }
+
             IncomingPluginPackageSet pluginPackages = ExtractIncomingPluginPackages(args);
             if (pluginPackages.PackagePaths.Count > 0)
             {
@@ -863,6 +879,26 @@ namespace XerahS.App
             XerahS.Common.DebugHelper.WriteLine(
                 $"Shell integration ({source}): Scheduling upload for {pathSet.Files.Count} file(s).");
             _ = Task.Run(() => UploadFilesFromIntegrationAsync(pathSet.Files));
+        }
+
+        private static void DispatchCaptureWorkflow(string workflowId)
+        {
+            try
+            {
+                var orchestrator = XerahS.UI.Services.WorkflowOrchestratorAccessor.Instance;
+                if (orchestrator != null)
+                {
+                    _ = orchestrator.TriggerWorkflowByIdAsync(workflowId);
+                }
+                else
+                {
+                    XerahS.Common.DebugHelper.WriteLine("Capture dispatch: workflow orchestrator not ready; ignoring capture request.");
+                }
+            }
+            catch (Exception ex)
+            {
+                XerahS.Common.DebugHelper.WriteException(ex, "Capture dispatch failed");
+            }
         }
 
         private static void OpenPluginPackageInstallers(IReadOnlyList<string> packagePaths, string source)
