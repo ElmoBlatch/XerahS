@@ -204,6 +204,12 @@ public class CustomUploaderProvider : IUploaderProvider
             }
         }
 
+        // Migrate legacy ShareX $func:arg$ response syntax to the modern {func:arg} form. The per-
+        // instance override JSON is deserialized raw (and the base item may predate migration), so a
+        // service-exported .sxcu using e.g. $json:url$ would otherwise be returned verbatim instead of
+        // the parsed value. Idempotent: already-modern fields are left untouched. See XIP0079.
+        effectiveItem.MigrateLegacyResponseSyntax();
+
         return new CustomUploaderExecutor(effectiveItem);
     }
 
