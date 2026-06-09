@@ -51,6 +51,20 @@ internal sealed class PortalCaptureProvider : ILinuxCaptureProvider
             return false;
         }
 
+        // COSMIC's Screenshot portal is interactive (it opens cosmic-screenshot) and unreliable here,
+        // so a silent full-screen grab — e.g. the background for the XerahS region overlay — must
+        // prefer the wlroots/grim provider instead of popping the portal UI. Only decline when grim is
+        // actually viable (Wayland, non-sandboxed, modern capture) so a full-screen request is never
+        // left without a provider. See XIP0079.
+        if (request.Kind == LinuxCaptureKind.FullScreen &&
+            request.UseModernCapture &&
+            context.IsWayland &&
+            !context.IsSandboxed &&
+            string.Equals(context.Desktop, "COSMIC", System.StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         if (context.IsSandboxed)
         {
             return context.ShouldTryPortal;

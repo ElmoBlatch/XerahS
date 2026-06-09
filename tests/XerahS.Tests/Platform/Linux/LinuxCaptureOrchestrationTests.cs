@@ -282,6 +282,38 @@ public class LinuxCaptureOrchestrationTests
     }
 
     [Test]
+    public void PortalProvider_CosmicWayland_DeclinesFullScreenSoGrimIsUsed()
+    {
+        var runtime = new NoOpRuntime();
+        var portalProvider = new PortalCaptureProvider(runtime);
+
+        var cosmic = new LinuxCaptureContext(isWayland: true, desktop: "COSMIC", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+        var gnome = new LinuxCaptureContext(isWayland: true, desktop: "GNOME", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+
+        var fullScreen = new LinuxCaptureRequest(LinuxCaptureKind.FullScreen, options: null);
+        var region = new LinuxCaptureRequest(LinuxCaptureKind.Region, options: null);
+        var legacyFullScreen = new LinuxCaptureRequest(LinuxCaptureKind.FullScreen, new CaptureOptions { UseModernCapture = false });
+
+        Assert.Multiple(() =>
+        {
+            // COSMIC's portal is interactive (cosmic-screenshot); a silent full-screen grab (e.g. the
+            // XerahS region-overlay background) must prefer the wlroots/grim provider.
+            Assert.That(portalProvider.CanHandle(fullScreen, cosmic), Is.False,
+                "Portal must decline full-screen on COSMIC so grim is used (no cosmic-screenshot UI).");
+            // Region capture (e.g. the PortalDialog selector) may still use the portal on COSMIC.
+            Assert.That(portalProvider.CanHandle(region, cosmic), Is.True,
+                "Region capture may still use the portal on COSMIC.");
+            // If grim is not viable (UseModernCapture=false) the portal must still handle full-screen,
+            // so a capture is never left without a provider.
+            Assert.That(portalProvider.CanHandle(legacyFullScreen, cosmic), Is.True,
+                "Portal must still handle full-screen on COSMIC when grim is unavailable.");
+            // GNOME (and other desktops) are unchanged.
+            Assert.That(portalProvider.CanHandle(fullScreen, gnome), Is.True,
+                "GNOME full-screen portal behavior must be unchanged.");
+        });
+    }
+
+    [Test]
     public async Task Coordinator_CancelledProvider_StopsFurtherFallback()
     {
         int portalCalls = 0;
