@@ -105,23 +105,33 @@ forwarded verb lands in the running instance (single-instance + `WorkflowOrchest
 headless CLI process. The command must therefore be:
 
 ```text
-<absolute-path>/XerahS capture <region|screen|window|transparent> --workflow-id <id>
+'<absolute-path>/XerahS' capture --workflow-id <id>
 ```
+
+> **As-built note (XIP0079 implementation).** The shipped writer emits exactly
+> `'<absolute-path>/XerahS' capture --workflow-id <id>`. Two deviations from the original sketch,
+> both deliberate:
+> 1. **The executable path is POSIX shell-quoted.** cosmic-comp runs `Spawn(String)` through
+>    `/bin/sh -c "<command>"` (`cosmic-comp src/input/actions.rs`), so an install path containing
+>    spaces/metacharacters would otherwise be word-split and the launch would fail.
+> 2. **No positional `<region|screen|window|transparent>` sub-verb.** `--workflow-id` alone
+>    re-resolves the exact configured `WorkflowSettings`, which already carries its own capture kind,
+>    so the sub-verb is redundant on the normal path. `CaptureArgsParser` therefore parses only the
+>    `capture` verb + `--workflow-id`. A sub-verb *fallback* (capture something sensible when the id
+>    is missing/stale) remains a documented future enhancement; today an unresolvable id is logged
+>    and no capture runs.
 
 - **Binary name is `XerahS`** (capital), not `xerahs`/`xerahscli`: the GUI assembly name is
   `<AssemblyName>XerahS</AssemblyName>` (`src/desktop/app/XerahS.App/XerahS.App.csproj:16`). The
   `xerahscli` name belongs to the separate CLI project (XIP0077 References).
-- **Verb form, not `--flag`**, mirroring the CLI capture grammar so the same tokens work in either
-  entry point: `screen | window | region | transparent`
-  (`src/desktop/cli/XerahS.CLI/Commands/CaptureCommand.cs:40-100`).
-- **Absolute path** resolved at write time from `Environment.ProcessPath` — the same value XerahS
-  already logs as its command line at startup (`src/desktop/app/XerahS.App/Program.cs:111`). cosmic-comp
-  spawns with no working-directory guarantee, so a bare name would not resolve.
+- **Absolute path, shell-quoted** resolved at write time from `Environment.ProcessPath` — the same
+  value XerahS already logs as its command line at startup (`src/desktop/app/XerahS.App/Program.cs:111`).
+  cosmic-comp spawns with no working-directory guarantee, so a bare name would not resolve.
 - **`--workflow-id <id>`** so the spawned/forwarded invocation re-resolves the *exact* configured
   `TaskSettings`, exactly as the CLI already looks up a workflow by id
   (`src/desktop/cli/XerahS.CLI/Commands/WorkflowCommand.cs:103-104`:
   `SettingsManager.WorkflowsConfig?.Hotkeys?.FirstOrDefault(w => w.Id == workflowId)`). Without the id,
-  the dispatcher can only fall back to an ad-hoc default (see Implementation step 2).
+  the dispatcher can only fall back to an ad-hoc default (a future sub-verb fallback).
 
 ---
 
