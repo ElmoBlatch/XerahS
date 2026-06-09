@@ -78,6 +78,12 @@ public static class AppContracts
 
         /// <summary>Option carrying the stable workflow id for <see cref="CaptureVerb"/>.</summary>
         public const string WorkflowIdOption = "--workflow-id";
+
+        /// <summary>Verb that opens the AI Assistant overlay (forwarded by a COSMIC shortcut). XIP0079.</summary>
+        public const string AssistantVerb = "assistant";
+
+        /// <summary>Verb that toggles the Capture Command Palette (forwarded by a COSMIC shortcut). XIP0079.</summary>
+        public const string CommandPaletteVerb = "command-palette";
     }
 
     /// <summary>

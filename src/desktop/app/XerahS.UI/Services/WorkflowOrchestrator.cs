@@ -80,6 +80,34 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
         _taskManager.TaskStarted += OnWorkflowTaskStarted;
     }
 
+    /// <inheritdoc />
+    public void ShowAssistant()
+    {
+        // Used by the COSMIC compositor-shortcut dispatch (XIP0079): cosmic-comp spawns "XerahS
+        // assistant", which forwards here instead of an in-process HotkeyTriggered event.
+        Dispatcher.UIThread.Post(() =>
+        {
+            _assistantOverlayCoordinator ??= new AssistantOverlayCoordinator();
+            _assistantOverlayCoordinator.ShowOverlay();
+        });
+    }
+
+    /// <inheritdoc />
+    public void ToggleCommandPalette()
+    {
+        // Used by the COSMIC compositor-shortcut dispatch (XIP0079): cosmic-comp spawns "XerahS
+        // command-palette", which forwards here instead of an in-process HotkeyTriggered event.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_captureCommandPaletteCoordinator == null && _workflowManager != null)
+            {
+                _captureCommandPaletteCoordinator = new CaptureCommandPaletteCoordinator(_workflowManager, ExecuteWorkflowFromPaletteAsync);
+            }
+
+            _captureCommandPaletteCoordinator?.TogglePalette();
+        });
+    }
+
     private void ConfigureWorkerTaskCallbacks()
     {
         Core.Tasks.WorkerTask.ShowWindowSelectorCallback = ShowWindowSelectorAsync;

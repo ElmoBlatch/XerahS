@@ -780,14 +780,17 @@ namespace XerahS.App
             {
                 try
                 {
-                    // A forwarded capture verb (e.g. a COSMIC compositor shortcut, XIP0079) must run the
-                    // capture WITHOUT raising the XerahS window — otherwise the app steals foreground from
-                    // the window the user is trying to capture and covers the screen. Only bring the window
-                    // forward for non-capture activations (opening files, plugin installs, generic re-launch).
-                    bool isCaptureVerb = XerahS.Common.CaptureArgsParser.TryParse(args, out _);
+                    // A forwarded action verb (capture / assistant / command-palette — e.g. a COSMIC
+                    // compositor shortcut, XIP0079) must run WITHOUT raising the XerahS window, otherwise
+                    // the app steals foreground from the window being captured and covers the screen. Only
+                    // bring the window forward for non-action activations (files, plugin installs, re-launch).
+                    bool isForwardedAction =
+                        XerahS.Common.CaptureArgsParser.TryParse(args, out _) ||
+                        XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb) ||
+                        XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb);
 
-                    // Bring the main window to the foreground (skipped for capture verbs)
-                    if (!isCaptureVerb &&
+                    // Bring the main window to the foreground (skipped for forwarded action verbs)
+                    if (!isForwardedAction &&
                         Avalonia.Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop &&
                         desktop.MainWindow != null)
                     {
@@ -844,6 +847,21 @@ namespace XerahS.App
                 {
                     XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}) received without {XerahS.Common.AppContracts.Cli.WorkflowIdOption}; ignoring.");
                 }
+                return;
+            }
+
+            // Forwarded app-action verbs (COSMIC shortcuts for the Assistant / Capture Command Palette).
+            if (XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb))
+            {
+                XerahS.Common.DebugHelper.WriteLine($"Assistant verb ({source}): opening assistant overlay.");
+                DispatchAssistant();
+                return;
+            }
+
+            if (XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb))
+            {
+                XerahS.Common.DebugHelper.WriteLine($"Command-palette verb ({source}): toggling capture command palette.");
+                DispatchCommandPalette();
                 return;
             }
 
@@ -905,6 +923,46 @@ namespace XerahS.App
             catch (Exception ex)
             {
                 XerahS.Common.DebugHelper.WriteException(ex, "Capture dispatch failed");
+            }
+        }
+
+        private static void DispatchAssistant()
+        {
+            try
+            {
+                var orchestrator = XerahS.UI.Services.WorkflowOrchestratorAccessor.Instance;
+                if (orchestrator != null)
+                {
+                    orchestrator.ShowAssistant();
+                }
+                else
+                {
+                    XerahS.Common.DebugHelper.WriteLine("Assistant dispatch: workflow orchestrator not ready; ignoring.");
+                }
+            }
+            catch (Exception ex)
+            {
+                XerahS.Common.DebugHelper.WriteException(ex, "Assistant dispatch failed");
+            }
+        }
+
+        private static void DispatchCommandPalette()
+        {
+            try
+            {
+                var orchestrator = XerahS.UI.Services.WorkflowOrchestratorAccessor.Instance;
+                if (orchestrator != null)
+                {
+                    orchestrator.ToggleCommandPalette();
+                }
+                else
+                {
+                    XerahS.Common.DebugHelper.WriteLine("Command-palette dispatch: workflow orchestrator not ready; ignoring.");
+                }
+            }
+            catch (Exception ex)
+            {
+                XerahS.Common.DebugHelper.WriteException(ex, "Command-palette dispatch failed");
             }
         }
 

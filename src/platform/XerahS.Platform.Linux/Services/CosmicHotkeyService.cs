@@ -75,7 +75,7 @@ internal sealed class CosmicHotkeyService : IHotkeyService
 
         try
         {
-            _writer.Upsert(binding, BuildSpawnCommand(hotkeyInfo.CommandIdentifier));
+            _writer.Upsert(binding, BuildSpawnCommand(hotkeyInfo));
         }
         catch (Exception ex)
         {
@@ -135,13 +135,22 @@ internal sealed class CosmicHotkeyService : IHotkeyService
 
     public Task<bool> ShowInteractiveConfigurationAsync() => Task.FromResult(false);
 
-    private string BuildSpawnCommand(string? workflowId)
+    private string BuildSpawnCommand(HotkeyInfo hotkeyInfo)
     {
-        string processPath = _processPathProvider() ?? "XerahS";
-        string command = $"{ShellQuote(processPath)} {AppContracts.Cli.CaptureVerb}";
-        if (!string.IsNullOrEmpty(workflowId))
+        string quotedPath = ShellQuote(_processPathProvider() ?? "XerahS");
+
+        // App-action hotkeys (Assistant, Capture Command Palette) spawn their own verb; everything else
+        // is a capture workflow re-resolved by its id on the next process start. See XIP0079.
+        if (!string.IsNullOrEmpty(hotkeyInfo.CommandVerb) &&
+            !string.Equals(hotkeyInfo.CommandVerb, AppContracts.Cli.CaptureVerb, StringComparison.Ordinal))
         {
-            command += $" {AppContracts.Cli.WorkflowIdOption} {workflowId}";
+            return $"{quotedPath} {hotkeyInfo.CommandVerb}";
+        }
+
+        string command = $"{quotedPath} {AppContracts.Cli.CaptureVerb}";
+        if (!string.IsNullOrEmpty(hotkeyInfo.CommandIdentifier))
+        {
+            command += $" {AppContracts.Cli.WorkflowIdOption} {hotkeyInfo.CommandIdentifier}";
         }
         return command;
     }

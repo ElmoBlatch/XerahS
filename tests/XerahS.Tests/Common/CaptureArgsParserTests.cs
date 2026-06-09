@@ -48,4 +48,19 @@ public class CaptureArgsParserTests
         Assert.That(CaptureArgsParser.TryParse(Array.Empty<string>(), out _), Is.False);
         Assert.That(CaptureArgsParser.TryParse(null, out _), Is.False);
     }
+
+    [Test]
+    public void ContainsVerb_DetectsForwardedActionVerbs()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "assistant" }, AppContracts.Cli.AssistantVerb), Is.True);
+            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "command-palette" }, AppContracts.Cli.CommandPaletteVerb), Is.True);
+            // wrong verb / capture args don't match
+            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "capture", "--workflow-id", "x" }, AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "assistant" }, AppContracts.Cli.CommandPaletteVerb), Is.False);
+            Assert.That(CaptureArgsParser.ContainsVerb(Array.Empty<string>(), AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.ContainsVerb(null, AppContracts.Cli.AssistantVerb), Is.False);
+        });
+    }
 }

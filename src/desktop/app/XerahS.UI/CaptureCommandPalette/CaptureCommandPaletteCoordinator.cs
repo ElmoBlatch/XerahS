@@ -78,6 +78,10 @@ public sealed class CaptureCommandPaletteCoordinator : IDisposable
             return;
         }
 
+        // Tag the spawn action so config-writing backends (COSMIC) toggle the palette rather than a
+        // capture on the keypress. See XIP0079.
+        hotkey.CommandVerb = AppContracts.Cli.CommandPaletteVerb;
+
         try
         {
             bool registered = PlatformServices.Hotkey.RegisterHotkey(hotkey);

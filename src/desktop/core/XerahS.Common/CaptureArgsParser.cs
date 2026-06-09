@@ -63,4 +63,19 @@ public static class CaptureArgsParser
 
         return true;
     }
+
+    /// <summary>
+    /// Returns true when <paramref name="args"/> contain the given action <paramref name="verb"/> as a
+    /// token (e.g. the forwarded "assistant" or "command-palette" verb from a COSMIC shortcut). XIP0079.
+    /// </summary>
+    public static bool ContainsVerb(string[]? args, string verb)
+    {
+        if (args == null || args.Length == 0 || string.IsNullOrEmpty(verb))
+        {
+            return false;
+        }
+
+        return Array.FindIndex(args,
+            a => string.Equals(a, verb, StringComparison.OrdinalIgnoreCase)) >= 0;
+    }
 }

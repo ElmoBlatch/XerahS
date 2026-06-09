@@ -37,4 +37,10 @@ public interface IWorkflowOrchestrator
     /// Used by the COSMIC compositor-shortcut dispatch (XIP0079).
     /// </summary>
     System.Threading.Tasks.Task TriggerWorkflowByIdAsync(string workflowId);
+
+    /// <summary>Open the AI Assistant overlay. Used by the COSMIC compositor-shortcut dispatch (XIP0079).</summary>
+    void ShowAssistant();
+
+    /// <summary>Toggle the Capture Command Palette. Used by the COSMIC compositor-shortcut dispatch (XIP0079).</summary>
+    void ToggleCommandPalette();
 }

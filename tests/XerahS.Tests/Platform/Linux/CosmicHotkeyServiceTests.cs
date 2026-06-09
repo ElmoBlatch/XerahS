@@ -125,6 +125,25 @@ public class CosmicHotkeyServiceTests
     }
 
     [Test]
+    public void RegisterHotkey_AppActionVerb_SpawnsThatVerb_NotCapture()
+    {
+        // App-action hotkeys (Assistant, Command Palette) carry a CommandVerb and must spawn that verb
+        // (e.g. "XerahS assistant"), not a bare/ID'd capture. See XIP0079.
+        var service = NewService();
+        var info = new HotkeyInfo(Key.Space, KeyModifiers.Control | KeyModifiers.Shift) { CommandVerb = "assistant" };
+
+        bool ok = service.RegisterHotkey(info);
+        string ron = File.ReadAllText(_file);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ok, Is.True);
+            Assert.That(ron, Does.Contain("Spawn(\"'/usr/bin/XerahS' assistant\")"));
+            Assert.That(ron, Does.Not.Contain("capture"));
+        });
+    }
+
+    [Test]
     public void RegisterHotkey_UnmappableKey_FailsWithoutWriting()
     {
         // A real but non-xkb key (e.g. media key) must report Failed honestly, not write a dead

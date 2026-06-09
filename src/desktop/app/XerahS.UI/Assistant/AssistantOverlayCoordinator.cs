@@ -60,6 +60,10 @@ public sealed class AssistantOverlayCoordinator : IDisposable
             return;
         }
 
+        // Tag the spawn action so config-writing backends (COSMIC) launch the assistant rather than a
+        // capture on the keypress. See XIP0079.
+        hotkey.CommandVerb = AppContracts.Cli.AssistantVerb;
+
         try
         {
             bool registered = PlatformServices.Hotkey.RegisterHotkey(hotkey);
