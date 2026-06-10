@@ -24,6 +24,7 @@
 #endregion License Information (GPL v3)
 
 using System.IO;
+using System.Threading;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Media.Imaging;
@@ -54,6 +55,8 @@ public sealed class AvaloniaClipboardService : IClipboardService
         RunOnUIThread(() =>
         {
             _clipboard.ClearAsync().GetAwaiter().GetResult();
+            // We no longer own the clipboard image; release the kept-alive transfer so its bitmap is freed.
+            ReleaseOwnedClipboardImage();
         });
     }
 
@@ -86,6 +89,8 @@ public sealed class AvaloniaClipboardService : IClipboardService
         RunOnUIThread(() =>
         {
             _clipboard.SetTextAsync(text).GetAwaiter().GetResult();
+            // Setting text replaces any image we put on the clipboard; release the kept-alive image transfer.
+            ReleaseOwnedClipboardImage();
         });
     }
 
@@ -143,9 +148,30 @@ public sealed class AvaloniaClipboardService : IClipboardService
         item.SetBitmap(bitmap);
         data.Add(item);
 
-        _ownedClipboardImage = data;
+        // Root the new transfer (and detach the previous one) BEFORE awaiting, so a racing copy never
+        // observes a half-assigned field. Dispose the previous transfer only AFTER the new one is on the
+        // clipboard: until SetDataAsync completes, the backend may still be serving the old selection
+        // lazily, and disposing its bitmap early is exactly what caused the X11 ObjectDisposedException.
+        DataTransfer? previous = Interlocked.Exchange(ref _ownedClipboardImage, data);
+        try
+        {
+            await clipboard.SetDataAsync(data);
+        }
+        finally
+        {
+            // DataTransfer implements IDisposable explicitly, so dispose via the interface.
+            ((IDisposable?)previous)?.Dispose();
+        }
+    }
 
-        await clipboard.SetDataAsync(data);
+    /// <summary>
+    /// Releases the kept-alive clipboard image transfer (disposing its bitmap) once XerahS no longer owns
+    /// the clipboard image — i.e. after <see cref="Clear"/> or after another payload (text) replaces it.
+    /// </summary>
+    private static void ReleaseOwnedClipboardImage()
+    {
+        // DataTransfer implements IDisposable explicitly, so dispose via the interface.
+        ((IDisposable?)Interlocked.Exchange(ref _ownedClipboardImage, null))?.Dispose();
     }
 
     public string[]? GetFileDropList()
