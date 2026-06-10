@@ -784,10 +784,10 @@ namespace XerahS.App
                     // compositor shortcut, XIP0079) must run WITHOUT raising the XerahS window, otherwise
                     // the app steals foreground from the window being captured and covers the screen. Only
                     // bring the window forward for non-action activations (files, plugin installs, re-launch).
-                    bool isForwardedAction =
-                        XerahS.Common.CaptureArgsParser.TryParse(args, out _) ||
-                        XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb) ||
-                        XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb);
+                    bool isForwardedAction = LooksLikeForwardedVerb(args) &&
+                        (XerahS.Common.CaptureArgsParser.TryParse(args, out _) ||
+                         XerahS.Common.CaptureArgsParser.IsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb) ||
+                         XerahS.Common.CaptureArgsParser.IsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb));
 
                     // Bring the main window to the foreground (skipped for forwarded action verbs)
                     if (!isForwardedAction &&
@@ -827,6 +827,34 @@ namespace XerahS.App
             });
         }
 
+        /// <summary>
+        /// True when <paramref name="args"/> look like a forwarded action verb rather than a path to open:
+        /// the leading token exists and is not an existing file/directory. Action verbs (capture,
+        /// assistant, command-palette — XIP0079) are always the first token; a first token that resolves
+        /// to a real path is the user opening that path, even if its name collides with a verb.
+        /// </summary>
+        private static bool LooksLikeForwardedVerb(string[]? args)
+        {
+            if (args == null || args.Length == 0 || string.IsNullOrEmpty(args[0]))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (System.IO.File.Exists(args[0]) || System.IO.Directory.Exists(args[0]))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                // If the path can't be probed (permissions, malformed), fall through to verb matching.
+            }
+
+            return true;
+        }
+
         private static void ProcessIncomingArguments(string[]? args, string source)
         {
             if (args == null || args.Length == 0)
@@ -834,35 +862,39 @@ namespace XerahS.App
                 return;
             }
 
-            // A forwarded capture verb (e.g. spawned by a COSMIC custom shortcut, XIP0079) is not a
-            // file/plugin path — dispatch it into the running capture pipeline and stop.
-            if (XerahS.Common.CaptureArgsParser.TryParse(args, out string? captureWorkflowId))
+            // A forwarded action verb (capture / assistant / command-palette — e.g. spawned by a COSMIC
+            // custom shortcut, XIP0079) is not a file/plugin path. Only treat args as a verb when the
+            // leading token is a verb AND is not an existing path, so a real file literally named
+            // "capture"/"assistant" that the user opens is handled as a path, not hijacked as a verb.
+            if (LooksLikeForwardedVerb(args))
             {
-                if (!string.IsNullOrEmpty(captureWorkflowId))
+                if (XerahS.Common.CaptureArgsParser.TryParse(args, out string? captureWorkflowId))
                 {
-                    XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}): dispatching workflow {captureWorkflowId}.");
-                    DispatchCaptureWorkflow(captureWorkflowId!);
+                    if (!string.IsNullOrEmpty(captureWorkflowId))
+                    {
+                        XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}): dispatching workflow {captureWorkflowId}.");
+                        DispatchCaptureWorkflow(captureWorkflowId!);
+                    }
+                    else
+                    {
+                        XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}) received without {XerahS.Common.AppContracts.Cli.WorkflowIdOption}; ignoring.");
+                    }
+                    return;
                 }
-                else
+
+                if (XerahS.Common.CaptureArgsParser.IsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb))
                 {
-                    XerahS.Common.DebugHelper.WriteLine($"Capture verb ({source}) received without {XerahS.Common.AppContracts.Cli.WorkflowIdOption}; ignoring.");
+                    XerahS.Common.DebugHelper.WriteLine($"Assistant verb ({source}): opening assistant overlay.");
+                    DispatchAssistant();
+                    return;
                 }
-                return;
-            }
 
-            // Forwarded app-action verbs (COSMIC shortcuts for the Assistant / Capture Command Palette).
-            if (XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.AssistantVerb))
-            {
-                XerahS.Common.DebugHelper.WriteLine($"Assistant verb ({source}): opening assistant overlay.");
-                DispatchAssistant();
-                return;
-            }
-
-            if (XerahS.Common.CaptureArgsParser.ContainsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb))
-            {
-                XerahS.Common.DebugHelper.WriteLine($"Command-palette verb ({source}): toggling capture command palette.");
-                DispatchCommandPalette();
-                return;
+                if (XerahS.Common.CaptureArgsParser.IsVerb(args, XerahS.Common.AppContracts.Cli.CommandPaletteVerb))
+                {
+                    XerahS.Common.DebugHelper.WriteLine($"Command-palette verb ({source}): toggling capture command palette.");
+                    DispatchCommandPalette();
+                    return;
+                }
             }
 
             IncomingPluginPackageSet pluginPackages = ExtractIncomingPluginPackages(args);

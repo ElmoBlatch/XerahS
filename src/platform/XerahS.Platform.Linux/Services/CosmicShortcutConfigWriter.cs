@@ -397,26 +397,80 @@ internal sealed class CosmicShortcutConfigWriter
         return Path.Combine(baseDir, "cosmic", "com.system76.CosmicSettings.Shortcuts", "v1", "custom");
     }
 
+    /// <summary>How claiming a combo affects whatever is currently bound to it.</summary>
+    internal enum ComboReplacementKind
+    {
+        /// <summary>Nothing on this combo, or an identical XerahS entry (a harmless no-op rewrite).</summary>
+        None,
+
+        /// <summary>A user's own (non-XerahS) binding is being destroyed — unrecoverable on unregister.</summary>
+        ForeignReplaced,
+
+        /// <summary>The combo was bound to a different XerahS action and is being reassigned.</summary>
+        XerahsReassigned,
+    }
+
+    /// <summary>
+    /// Classifies what claiming <paramref name="binding"/> with <paramref name="newActionText"/> does to the
+    /// existing <paramref name="entries"/> on the same combo. cosmic's custom map holds one action per
+    /// (modifiers,key), so taking a combo necessarily replaces whatever is on it. Pure/ testable.
+    /// </summary>
+    internal static ComboReplacementKind ClassifyComboReplacement(
+        IReadOnlyList<CosmicShortcutEntry> entries, CosmicBinding binding, string newActionText)
+    {
+        bool foreignReplaced = false;
+        bool xerahsReassigned = false;
+
+        foreach (var e in entries)
+        {
+            if (!e.Binding.SameBindingAs(binding))
+            {
+                continue;
+            }
+
+            if (!e.Binding.IsXerahsOwned)
+            {
+                foreignReplaced = true;
+            }
+            else if (!string.Equals(e.ActionText, newActionText, StringComparison.Ordinal))
+            {
+                xerahsReassigned = true;
+            }
+        }
+
+        // Destroying a foreign binding is the more serious (unrecoverable) case, so report it first.
+        if (foreignReplaced)
+        {
+            return ComboReplacementKind.ForeignReplaced;
+        }
+
+        return xerahsReassigned ? ComboReplacementKind.XerahsReassigned : ComboReplacementKind.None;
+    }
+
     /// <summary>Insert or replace the XerahS-owned binding -&gt; <c>Spawn(spawnCommand)</c>, preserving all foreign entries.</summary>
     public void Upsert(CosmicBinding binding, string spawnCommand)
     {
         var entries = ReadEntries();
 
-        // cosmic's custom map holds one action per (modifiers,key), so claiming this combo replaces
-        // whatever is bound to it. If that is a user's own (non-XerahS) binding we cannot keep both,
-        // and Remove()/UnregisterAll() will not restore it later — surface that instead of destroying
-        // it silently. See XIP0079.
-        if (entries.Any(e => !e.Binding.IsXerahsOwned && e.Binding.SameBindingAs(binding)))
-        {
-            string combo = string.Join("+", binding.OrderedModifiers().Append(binding.Key));
-            DebugHelper.WriteLine($"CosmicShortcutConfigWriter: replacing a non-XerahS custom shortcut on {combo}; it will not be restored on unregister.");
-        }
-
-        entries.RemoveAll(e => e.Binding.SameBindingAs(binding));
-
         var owned = new CosmicBinding(binding.Modifiers, binding.Key, ManagedDescription);
         string keyText = CosmicShortcutsRon.EmitBindingText(owned);
         string actionText = $"Spawn(\"{CosmicShortcutsRon.EscapeForString(spawnCommand)}\")";
+
+        // cosmic's custom map holds one action per (modifiers,key), so claiming this combo replaces
+        // whatever is bound to it — surface destructive replacements instead of doing them silently.
+        // Remove()/UnregisterAll() will not restore the prior binding later. See XIP0079.
+        string combo = string.Join("+", binding.OrderedModifiers().Append(binding.Key));
+        switch (ClassifyComboReplacement(entries, binding, actionText))
+        {
+            case ComboReplacementKind.ForeignReplaced:
+                DebugHelper.WriteLine($"CosmicShortcutConfigWriter: replacing a non-XerahS custom shortcut on {combo}; it will not be restored on unregister.");
+                break;
+            case ComboReplacementKind.XerahsReassigned:
+                DebugHelper.WriteLine($"CosmicShortcutConfigWriter: reassigning {combo} from a previous XerahS shortcut to '{spawnCommand}'.");
+                break;
+        }
+
+        entries.RemoveAll(e => e.Binding.SameBindingAs(binding));
         entries.Add(new CosmicShortcutEntry(keyText, actionText, owned));
 
         Write(entries);
