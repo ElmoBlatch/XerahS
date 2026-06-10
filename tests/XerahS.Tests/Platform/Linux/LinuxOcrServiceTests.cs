@@ -20,6 +20,24 @@ public class LinuxOcrServiceTests
         Assert.That(LinuxOcrService.MapLanguageToTesseractCode(input), Is.EqualTo(expected));
     }
 
+    // Chinese disambiguation: Tesseract has separate chi_sim / chi_tra packs, and the Simplified vs
+    // Traditional distinction lives in the BCP-47 script/region subtag, not the "zh" primary tag.
+    [TestCase("zh", "chi_sim")]
+    [TestCase("zh-Hans", "chi_sim")]
+    [TestCase("zh-CN", "chi_sim")]
+    [TestCase("zh-SG", "chi_sim")]
+    [TestCase("zh-Hant", "chi_tra")]
+    [TestCase("zh-TW", "chi_tra")]
+    [TestCase("zh_TW", "chi_tra")]
+    [TestCase("zh-HK", "chi_tra")]
+    [TestCase("zh-MO", "chi_tra")]
+    [TestCase("zh-Hant-TW", "chi_tra")]
+    [TestCase("chi_tra", "chi_tra")]
+    public void MapLanguageToTesseractCode_DisambiguatesChineseScript(string input, string expected)
+    {
+        Assert.That(LinuxOcrService.MapLanguageToTesseractCode(input), Is.EqualTo(expected));
+    }
+
     [Test]
     public void BuildTesseractArguments_DefaultAndSingleLine()
     {
