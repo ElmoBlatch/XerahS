@@ -81,7 +81,7 @@ public class LinuxOcrService : IOcrService
         }
 
         string langCode = ResolveLanguageCode(options.Language);
-        string tempFile = Path.Combine(Path.GetTempPath(), $"xerahs_ocr_{Guid.NewGuid():N}.png");
+        string tempFile = Path.Combine(ResolvePrivateTempDir(), $"xerahs_ocr_{Guid.NewGuid():N}.png");
 
         SKBitmap? scaled = null;
         try
@@ -98,8 +98,16 @@ public class LinuxOcrService : IOcrService
                 }
             }
 
-            using (var fs = File.Create(tempFile))
+            // The OCR source is typically a screenshot of sensitive on-screen content. Create the temp
+            // file empty, restrict it to the owner (0600) before writing any pixels, so other local
+            // users can't read it from a shared /tmp during the tesseract run.
+            using (var fs = new FileStream(tempFile, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
+                if (OperatingSystem.IsLinux())
+                {
+                    File.SetUnixFileMode(tempFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
                 working.Encode(fs, SKEncodedImageFormat.Png, 100);
             }
 
@@ -145,6 +153,8 @@ public class LinuxOcrService : IOcrService
         if (!exited)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            // Observe the read tasks so they don't fault unobserved once Kill closes the pipes.
+            try { await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false); } catch { /* aborted by Kill */ }
             return Failure("tesseract timed out.");
         }
 
@@ -171,12 +181,20 @@ public class LinuxOcrService : IOcrService
             return mapped;
         }
 
+        // The requested language isn't in the cached list — a language pack may have been installed
+        // after launch. Refresh once before falling back so newly-added packs are picked up.
+        available = GetAvailableLanguageCodes(forceRefresh: true);
+        if (available.Count == 0 || available.Contains(mapped))
+        {
+            return mapped;
+        }
+
         return available.Contains("eng") ? "eng" : available[0];
     }
 
-    private IReadOnlyList<string> GetAvailableLanguageCodes()
+    private IReadOnlyList<string> GetAvailableLanguageCodes(bool forceRefresh = false)
     {
-        if (_cachedLanguageCodes != null)
+        if (!forceRefresh && _cachedLanguageCodes != null)
         {
             return _cachedLanguageCodes;
         }
@@ -207,9 +225,17 @@ public class LinuxOcrService : IOcrService
                 return _cachedLanguageCodes;
             }
 
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit(ListLangsTimeoutMs);
+            // Read both streams concurrently before waiting, to avoid a pipe-buffer deadlock if a
+            // tesseract/leptonica build emits a lot of warnings to stderr during --list-langs.
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(ListLangsTimeoutMs))
+            {
+                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            }
+
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
 
             // tesseract prints the language list to stdout on some builds and stderr on others.
             _cachedLanguageCodes = ParseListLangs(string.IsNullOrWhiteSpace(stdout) ? stderr : stdout);
@@ -253,6 +279,14 @@ public class LinuxOcrService : IOcrService
         int separator = normalized.IndexOfAny(new[] { '-', '_' });
         string primary = separator > 0 ? normalized.Substring(0, separator) : normalized;
 
+        // Chinese needs script/region disambiguation: Tesseract splits Simplified (chi_sim) from
+        // Traditional (chi_tra), but BCP-47 carries that distinction in the script/region subtag
+        // (zh-Hant, zh-TW, zh-HK, zh-MO) rather than the "zh" primary tag.
+        if (primary == "zh")
+        {
+            return IsTraditionalChinese(normalized) ? "chi_tra" : "chi_sim";
+        }
+
         // A 3+ letter token that isn't a known 2-letter tag is assumed to already be a Tesseract code
         // (e.g. "eng", "chi_sim"); Tesseract uses '_' separators, never '-'.
         if (normalized.Length >= 3 && !TwoLetterToTesseract.ContainsKey(primary))
@@ -261,6 +295,32 @@ public class LinuxOcrService : IOcrService
         }
 
         return TwoLetterToTesseract.TryGetValue(primary, out string? code) ? code : "eng";
+    }
+
+    /// <summary>
+    /// True when a normalized (lowercased, '-'/'_' separated) Chinese tag denotes Traditional script —
+    /// either an explicit <c>Hant</c> script subtag or a Traditional-by-convention region (TW/HK/MO).
+    /// A bare "zh" or an explicit Simplified subtag (Hans/CN/SG) maps to Simplified.
+    /// </summary>
+    private static bool IsTraditionalChinese(string normalizedTag)
+    {
+        foreach (string subtag in normalizedTag.Split(new[] { '-', '_' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            switch (subtag)
+            {
+                case "hant":
+                case "tw":
+                case "hk":
+                case "mo":
+                    return true;
+                case "hans":
+                case "cn":
+                case "sg":
+                    return false;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Parses the output of <c>tesseract --list-langs</c> into language codes (skips header + osd).</summary>
@@ -350,6 +410,19 @@ public class LinuxOcrService : IOcrService
         }
 
         return null;
+    }
+
+    private static string ResolvePrivateTempDir()
+    {
+        // Prefer the per-user runtime dir (mode 0700, e.g. /run/user/1000) over the world-readable
+        // shared /tmp so OCR source images aren't exposed to other local users.
+        string? runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+        if (!string.IsNullOrEmpty(runtimeDir) && Directory.Exists(runtimeDir))
+        {
+            return runtimeDir;
+        }
+
+        return Path.GetTempPath();
     }
 
     private static OcrResult Failure(string message) =>
