@@ -87,35 +87,30 @@ public sealed class OverlayManager : IDisposable
                 _overlays.Add(overlay);
             }
 
-            // Determine primary overlay first so we can show and focus it before others (helps Linux/Wayland grant focus sooner)
-            int primaryIndex = -1;
-            for (int i = 0; i < monitors.Count; i++)
-            {
-                if (monitors[i].IsPrimary)
-                {
-                    primaryIndex = i;
-                    break;
-                }
-            }
+            // Choose which overlay to focus first: the monitor under the cursor, else the primary, else
+            // the leftmost. Focusing the cursor's monitor keeps region-capture targeting correct even when
+            // the compositor reorders displays or drops the primary flag after resume/login, and still
+            // gives the compositor one clear focus target sooner on Wayland (XIP0081).
+            int focusIndex = OverlayFocusSelector.SelectInitialFocusIndex(monitors, options?.PreferredFocusPoint);
 
-            var primaryOverlay = primaryIndex >= 0 && primaryIndex < _overlays.Count
-                ? _overlays[primaryIndex]
+            var focusOverlay = focusIndex >= 0 && focusIndex < _overlays.Count
+                ? _overlays[focusIndex]
                 : null;
 
-            // Show primary overlay first and focus it immediately so compositor has one clear focus target (reduces pointer-event delay on Wayland)
-            if (primaryOverlay != null)
+            // Show the focus overlay first and focus it immediately so the compositor has one clear focus target (reduces pointer-event delay on Wayland)
+            if (focusOverlay != null)
             {
-                primaryOverlay.Show();
-                primaryOverlay.Activate();
-                primaryOverlay.Focus();
-                var primaryHandle = primaryOverlay.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-                WindowDetectionService.ExcludeHandle(primaryHandle);
+                focusOverlay.Show();
+                focusOverlay.Activate();
+                focusOverlay.Focus();
+                var focusHandle = focusOverlay.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+                WindowDetectionService.ExcludeHandle(focusHandle);
             }
 
             // Show remaining overlays
             foreach (var overlay in _overlays)
             {
-                if (overlay == primaryOverlay)
+                if (overlay == focusOverlay)
                     continue;
                 overlay.Show();
                 overlay.Activate();

@@ -45,6 +45,7 @@ internal static class OverlayRegionCaptureSession
         bool useFastOverlay)
     {
         SKRectI selection = SKRectI.Empty;
+        var preferredFocusPoint = ResolvePreferredFocusPoint();
 
         try
         {
@@ -92,6 +93,7 @@ internal static class OverlayRegionCaptureSession
                         BackgroundImage = backgroundForMagnifier,
                         UseTransparentOverlay = useFastOverlay,
                         EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(options?.WorkflowId),
+                        PreferredFocusPoint = preferredFocusPoint,
                     }
                 };
 
@@ -130,6 +132,7 @@ internal static class OverlayRegionCaptureSession
         SKRectI selection = SKRectI.Empty;
         SKBitmap? annotationLayer = null;
         PixelPoint annotationMonitorOrigin = default;
+        var preferredFocusPoint = ResolvePreferredFocusPoint();
 
         try
         {
@@ -144,6 +147,7 @@ internal static class OverlayRegionCaptureSession
                         UseTransparentOverlay = useFastOverlay,
                         EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(effectiveOptions?.WorkflowId),
                         SessionStartUtc = sessionStartUtc,
+                        PreferredFocusPoint = preferredFocusPoint,
                     }
                 };
 
@@ -172,5 +176,27 @@ internal static class OverlayRegionCaptureSession
         }
 
         return new OverlayRegionCaptureResult(selection, annotationLayer, annotationMonitorOrigin);
+    }
+
+    /// <summary>
+    /// Reads the current cursor position so overlay focus can target the monitor the user is working on.
+    /// Returns null when the position is unavailable: a failed read surfaces as <c>Point.Empty</c> (0,0),
+    /// which must be treated as "unknown" rather than the desktop origin (XIP0081).
+    /// </summary>
+    private static PixelPoint? ResolvePreferredFocusPoint()
+    {
+        try
+        {
+            var cursor = PlatformServices.Input.GetCursorPosition();
+            if (cursor.IsEmpty)
+                return null;
+
+            return new PixelPoint(cursor.X, cursor.Y);
+        }
+        catch
+        {
+            // Cursor position is best-effort; fall back to primary/leftmost focus.
+            return null;
+        }
     }
 }

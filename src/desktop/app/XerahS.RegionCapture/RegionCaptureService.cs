@@ -165,4 +165,12 @@ public sealed record RegionCaptureOptions
     /// Set by ScreenCaptureService at the start of region capture UI.
     /// </summary>
     public DateTime? SessionStartUtc { get; init; }
+
+    /// <summary>
+    /// Logical-desktop point (typically the cursor position at capture start) used to decide which
+    /// monitor's overlay receives initial focus: the containing monitor is focused first, otherwise
+    /// the primary, then the leftmost, monitor. Null means "unknown" — a failed cursor read must be
+    /// passed as null, never coerced to (0,0). See XIP0081.
+    /// </summary>
+    public PixelPoint? PreferredFocusPoint { get; init; }
 }
