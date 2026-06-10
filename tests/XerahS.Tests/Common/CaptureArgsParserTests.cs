@@ -43,6 +43,18 @@ public class CaptureArgsParserTests
     }
 
     [Test]
+    public void TryParse_VerbOnlyMatchesLeadingToken()
+    {
+        // "capture" as a non-leading token (e.g. a forwarded file path or flag value) must not be
+        // misread as a capture invocation — the verb is a command and only valid as args[0].
+        Assert.Multiple(() =>
+        {
+            Assert.That(CaptureArgsParser.TryParse(new[] { "/home/user/capture", "--workflow-id", "x" }, out _), Is.False);
+            Assert.That(CaptureArgsParser.TryParse(new[] { "--send-to", "capture" }, out _), Is.False);
+        });
+    }
+
+    [Test]
     public void TryParse_Empty_IsNotCapture()
     {
         Assert.That(CaptureArgsParser.TryParse(Array.Empty<string>(), out _), Is.False);
@@ -50,17 +62,20 @@ public class CaptureArgsParserTests
     }
 
     [Test]
-    public void ContainsVerb_DetectsForwardedActionVerbs()
+    public void IsVerb_DetectsForwardedActionVerbs_OnlyAsLeadingToken()
     {
         Assert.Multiple(() =>
         {
-            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "assistant" }, AppContracts.Cli.AssistantVerb), Is.True);
-            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "command-palette" }, AppContracts.Cli.CommandPaletteVerb), Is.True);
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "assistant" }, AppContracts.Cli.AssistantVerb), Is.True);
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "command-palette" }, AppContracts.Cli.CommandPaletteVerb), Is.True);
             // wrong verb / capture args don't match
-            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "capture", "--workflow-id", "x" }, AppContracts.Cli.AssistantVerb), Is.False);
-            Assert.That(CaptureArgsParser.ContainsVerb(new[] { "assistant" }, AppContracts.Cli.CommandPaletteVerb), Is.False);
-            Assert.That(CaptureArgsParser.ContainsVerb(Array.Empty<string>(), AppContracts.Cli.AssistantVerb), Is.False);
-            Assert.That(CaptureArgsParser.ContainsVerb(null, AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "capture", "--workflow-id", "x" }, AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "assistant" }, AppContracts.Cli.CommandPaletteVerb), Is.False);
+            // the verb only counts as the leading token — a later argument that equals it must not match
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "--send-to", "assistant" }, AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.IsVerb(new[] { "/home/user/assistant", "extra" }, AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.IsVerb(Array.Empty<string>(), AppContracts.Cli.AssistantVerb), Is.False);
+            Assert.That(CaptureArgsParser.IsVerb(null, AppContracts.Cli.AssistantVerb), Is.False);
         });
     }
 }

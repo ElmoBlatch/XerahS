@@ -138,6 +138,61 @@ public class CosmicShortcutConfigWriterTests
     }
 
     [Test]
+    public void ClassifyComboReplacement_DistinguishesForeignReassignAndNoOp()
+    {
+        var binding = new CosmicBinding(new[] { "Super" }, "Print");
+
+        var foreign = new System.Collections.Generic.List<CosmicShortcutEntry>(
+            CosmicShortcutsRon.Parse("{ (modifiers: [Super], key: \"Print\"): Spawn(\"user-thing\"), }"));
+
+        // A pre-existing XerahS entry on the same combo, bound to a different action.
+        var differentXerahs = new System.Collections.Generic.List<CosmicShortcutEntry>(
+            CosmicShortcutsRon.Parse("{ (modifiers: [Super], key: \"Print\", description: Some(\"Managed by XerahS\")): Spawn(\"old-action\"), }"));
+
+        // The identical XerahS entry (same action) — re-writing it is a harmless no-op.
+        var sameXerahs = new System.Collections.Generic.List<CosmicShortcutEntry>(
+            CosmicShortcutsRon.Parse("{ (modifiers: [Super], key: \"Print\", description: Some(\"Managed by XerahS\")): Spawn(\"new-action\"), }"));
+
+        // A XerahS entry on a *different* combo must not be treated as a replacement.
+        var unrelated = new System.Collections.Generic.List<CosmicShortcutEntry>(
+            CosmicShortcutsRon.Parse("{ (modifiers: [Ctrl], key: \"p\", description: Some(\"Managed by XerahS\")): Spawn(\"old-action\"), }"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(CosmicShortcutConfigWriter.ClassifyComboReplacement(foreign, binding, "Spawn(\"new-action\")"),
+                Is.EqualTo(CosmicShortcutConfigWriter.ComboReplacementKind.ForeignReplaced));
+            Assert.That(CosmicShortcutConfigWriter.ClassifyComboReplacement(differentXerahs, binding, "Spawn(\"new-action\")"),
+                Is.EqualTo(CosmicShortcutConfigWriter.ComboReplacementKind.XerahsReassigned));
+            Assert.That(CosmicShortcutConfigWriter.ClassifyComboReplacement(sameXerahs, binding, "Spawn(\"new-action\")"),
+                Is.EqualTo(CosmicShortcutConfigWriter.ComboReplacementKind.None));
+            Assert.That(CosmicShortcutConfigWriter.ClassifyComboReplacement(unrelated, binding, "Spawn(\"new-action\")"),
+                Is.EqualTo(CosmicShortcutConfigWriter.ComboReplacementKind.None));
+            Assert.That(CosmicShortcutConfigWriter.ClassifyComboReplacement(
+                    new System.Collections.Generic.List<CosmicShortcutEntry>(), binding, "Spawn(\"new-action\")"),
+                Is.EqualTo(CosmicShortcutConfigWriter.ComboReplacementKind.None));
+        });
+    }
+
+    [Test]
+    public void Upsert_ReassignsXerahsCombo_KeepsSingleEntryWithNewAction()
+    {
+        // Reassigning a combo from one XerahS action to another must still leave exactly one entry
+        // bound to the new action (the warning is a side effect; behavior must stay correct).
+        var writer = NewWriter();
+        var binding = new CosmicBinding(new[] { "Super" }, "Print");
+        writer.Upsert(binding, "/usr/bin/XerahS capture region --workflow-id one");
+        writer.Upsert(binding, "/usr/bin/XerahS assistant");
+
+        var entries = CosmicShortcutsRon.Parse(File.ReadAllText(_file));
+        Assert.Multiple(() =>
+        {
+            Assert.That(entries, Has.Count.EqualTo(1));
+            Assert.That(entries[0].ActionText, Does.Contain("XerahS assistant"));
+            Assert.That(entries[0].ActionText, Does.Not.Contain("--workflow-id one"));
+        });
+    }
+
+    [Test]
     public void Parse_IgnoresLineAndBlockComments()
     {
         // A user (or the XIP examples) may hand-add comments; a brace inside a comment must not

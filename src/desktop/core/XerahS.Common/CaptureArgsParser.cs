@@ -45,14 +45,15 @@ public static class CaptureArgsParser
             return false;
         }
 
-        int verbIndex = Array.FindIndex(args,
-            a => string.Equals(a, AppContracts.Cli.CaptureVerb, StringComparison.OrdinalIgnoreCase));
-        if (verbIndex < 0)
+        // The verb is a command, so it must be the leading token — not matched anywhere in the array.
+        // Otherwise an ordinary argument that happens to equal "capture" (e.g. a forwarded file path or
+        // a flag value) would be misread as a capture invocation.
+        if (!string.Equals(args[0], AppContracts.Cli.CaptureVerb, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        for (int i = verbIndex + 1; i < args.Length - 1; i++)
+        for (int i = 1; i < args.Length - 1; i++)
         {
             if (string.Equals(args[i], AppContracts.Cli.WorkflowIdOption, StringComparison.OrdinalIgnoreCase))
             {
@@ -65,17 +66,17 @@ public static class CaptureArgsParser
     }
 
     /// <summary>
-    /// Returns true when <paramref name="args"/> contain the given action <paramref name="verb"/> as a
-    /// token (e.g. the forwarded "assistant" or "command-palette" verb from a COSMIC shortcut). XIP0079.
+    /// Returns true when <paramref name="args"/> invoke the given action <paramref name="verb"/> as the
+    /// leading token (e.g. the forwarded "assistant" or "command-palette" verb from a COSMIC shortcut).
+    /// Anchored to <c>args[0]</c> so a later argument that merely equals the verb does not match. XIP0079.
     /// </summary>
-    public static bool ContainsVerb(string[]? args, string verb)
+    public static bool IsVerb(string[]? args, string verb)
     {
         if (args == null || args.Length == 0 || string.IsNullOrEmpty(verb))
         {
             return false;
         }
 
-        return Array.FindIndex(args,
-            a => string.Equals(a, verb, StringComparison.OrdinalIgnoreCase)) >= 0;
+        return string.Equals(args[0], verb, StringComparison.OrdinalIgnoreCase);
     }
 }
