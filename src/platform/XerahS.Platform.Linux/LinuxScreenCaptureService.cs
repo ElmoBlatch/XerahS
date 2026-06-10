@@ -36,6 +36,7 @@ using XerahS.Platform.Linux.Capture.Kde;
 using XerahS.Platform.Linux.Capture.Portal;
 using XerahS.Platform.Linux.Capture.Wayland;
 using XerahS.Platform.Linux.Capture.X11;
+using XerahS.Platform.Linux.Services;
 using SkiaSharp;
 
 namespace XerahS.Platform.Linux
@@ -600,9 +601,19 @@ namespace XerahS.Platform.Linux
         /// COSMIC's XDG Screenshot portal is the interactive cosmic-screenshot UI. XerahS captures via
         /// grim/slurp + its own overlay on COSMIC, so the portal must never be invoked there — it would
         /// pop cosmic-screenshot for region/active-window captures and stall full-screen grabs. See XIP0079.
+        /// Only block when grim is actually available (and we're not sandboxed): if grim is missing there
+        /// is no alternative capture path on COSMIC Wayland, so the portal must remain usable as a last
+        /// resort rather than leaving the request with no provider.
         /// </summary>
         internal static bool ShouldBlockCosmicScreenshotPortal(ILinuxCaptureContext context) =>
-            context.IsWayland && string.Equals(context.Desktop, "COSMIC", StringComparison.Ordinal);
+            ShouldBlockCosmicScreenshotPortal(context, LinuxExecutable.IsAvailable("grim"));
+
+        /// <inheritdoc cref="ShouldBlockCosmicScreenshotPortal(ILinuxCaptureContext)"/>
+        internal static bool ShouldBlockCosmicScreenshotPortal(ILinuxCaptureContext context, bool grimAvailable) =>
+            context.IsWayland
+            && !context.IsSandboxed
+            && grimAvailable
+            && string.Equals(context.Desktop, "COSMIC", StringComparison.Ordinal);
 
         internal static SKRectI CreateDirectAreaCaptureRect(SKRect rect)
         {
