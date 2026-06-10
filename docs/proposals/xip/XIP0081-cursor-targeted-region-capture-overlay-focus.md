@@ -120,6 +120,17 @@ RegionCaptureService.CaptureRegionAsync -> OverlayManager.ShowOverlaysAsync(opti
    Show()/Activate()/Focus() that overlay first, then the rest
 ```
 
+## Evolution History
+
+| Date | Change | Rationale |
+|------|--------|-----------|
+| 2026-06-10 | Initial implementation: `OverlayFocusSelector` picks the cursor's monitor; `PreferredFocusPoint` plumbed via `RegionCaptureOptions`. | Cursor-target the overlay; primary becomes a fallback. |
+| 2026-06-10 | Loop fix + pointer-enter refinement, after focus-theft was traced. | The selector picked the right overlay, but `OverlayManager`'s remaining-overlays loop then called `Activate()` on each, handing the active window to the **last** overlay shown — a ~16-23 ms programmatic focus theft seen via an `xprop -spy _NET_ACTIVE_WINDOW` trace. Fix: `ShowActivated="False"` on `OverlayWindow`, drop the loop's `Activate()`, and re-assert the cursor overlay's activation **last**. Refinement: each overlay claims the active window on its first pointer event (`PointerEntered`/`PointerMoved`), making targeting cursor-perfect even if the pre-capture `xdotool` read was stale — the post-map pointer position is always live. (Confirmed on this COSMIC session that `xdotool getmouselocation` does return real coordinates; the pointer-enter claim is the compositor-agnostic guarantee on top of that.) |
+
+## Watch-items
+
+- `OverlayWindow.OnOpened` calls `this.Focus()` + `ScheduleDelayedFocusRetries()` on **every** overlay. These use `Focus()` (input focus), not `Activate()`, and the trace showed `_NET_ACTIVE_WINDOW` flipping only on `Activate()` calls — so they were not the active-window theft. If a future trace shows residual focus drift, gate these per-overlay retries to the owning overlay (e.g. a shared focus arbiter that the pointer-enter claim can hand off).
+
 ## Open Questions
 
 - DPI: resolved in Phase 2 — `PreferredFocusPoint` is in logical desktop coordinates and matched against `OverlayBounds`. The only remaining implementation detail is confirming the caller's physical→logical conversion reuses `GetScreenFromPoint` cleanly; the affected rig is scale `1.0` where the distinction is moot.

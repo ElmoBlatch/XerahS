@@ -107,15 +107,25 @@ public sealed class OverlayManager : IDisposable
                 WindowDetectionService.ExcludeHandle(focusHandle);
             }
 
-            // Show remaining overlays
+            // Show the remaining overlays WITHOUT activating them. With ShowActivated=false they map
+            // unfocused, so Show() cannot steal focus; calling Activate() here would hand the active
+            // window to the LAST overlay shown — the ~16-23 ms programmatic focus theft seen in tracing —
+            // instead of the cursor's overlay (XIP0081).
             foreach (var overlay in _overlays)
             {
                 if (overlay == focusOverlay)
                     continue;
                 overlay.Show();
-                overlay.Activate();
                 var handle = overlay.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
                 WindowDetectionService.ExcludeHandle(handle);
+            }
+
+            // Re-assert focus on the cursor's overlay so it is the LAST activation request the
+            // compositor sees, guaranteeing the selected monitor keeps the active window.
+            if (focusOverlay != null)
+            {
+                focusOverlay.Activate();
+                focusOverlay.Focus();
             }
 
             if (options?.SessionStartUtc is { } start)

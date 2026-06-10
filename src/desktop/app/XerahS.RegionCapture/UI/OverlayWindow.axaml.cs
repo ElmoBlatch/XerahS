@@ -197,6 +197,13 @@ public partial class OverlayWindow : Window
         Focusable = true;
         ApplySelectionCursorPolicy();
 
+        // XIP0081: once mapped, every overlay covers its monitor, so the overlay physically under the
+        // pointer receives pointer-motion immediately (pointer delivery does not require focus). Claim the
+        // active window on the first pointer event so targeting is cursor-perfect even when OverlayManager's
+        // pre-capture cursor read (xdotool, which can be stale under Wayland) picked the wrong monitor.
+        PointerEntered += ClaimFocusOnFirstPointer;
+        AddHandler(PointerMovedEvent, ClaimFocusOnFirstPointer, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+
         WireUpToolbarEvents();
     }
 
@@ -298,6 +305,21 @@ public partial class OverlayWindow : Window
         {
             DebugHelper.WriteLine($"[OverlayWindow.{source}] {_monitor.DeviceName}: Diagnostic failed: {ex.Message}");
         }
+    }
+
+    private bool _pointerFocusClaimed;
+
+    private void ClaimFocusOnFirstPointer(object? sender, PointerEventArgs e)
+    {
+        if (_pointerFocusClaimed)
+            return;
+
+        _pointerFocusClaimed = true;
+
+        // The overlay the pointer is actually over is the user's real target — claim the active window
+        // so the cursor's monitor wins even when the pre-capture cursor read was stale.
+        Activate();
+        this.Focus();
     }
 
     private async void ScheduleDelayedFocusRetries()
