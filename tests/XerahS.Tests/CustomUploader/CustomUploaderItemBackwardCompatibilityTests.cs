@@ -70,6 +70,52 @@ public class CustomUploaderItemBackwardCompatibilityTests
     }
 
     [Test]
+    public void MigrateLegacyResponseSyntax_ConvertsOnlyKnownFunctionTokens_LeavesLiteralDollarsIntact()
+    {
+        // Regression: the old detector matched any $word$ and the toggle rewrote every '$', corrupting
+        // fields with literal dollar signs (currency, bearer tokens, regex anchors). Only real ShareX
+        // function tokens ($json:..$, $response$, ...) should convert; everything else stays verbatim.
+        var item = CustomUploaderItem.Init();
+        item.Version = "0.22.255";
+        item.URL = "$json:url$ costs $5";
+        item.DeletionURL = "$json:files[0].delete$";
+        item.ErrorMessage = "$json:message$";
+        item.Headers = new System.Collections.Generic.Dictionary<string, string>
+        {
+            ["Authorization"] = "Bearer $TOKEN$",
+            ["X-Price"] = "$USD or $EUR",
+        };
+
+        item.MigrateLegacyResponseSyntax();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.URL, Is.EqualTo("{json:url} costs $5"));
+            Assert.That(item.DeletionURL, Is.EqualTo("{json:files[0].delete}"));
+            Assert.That(item.ErrorMessage, Is.EqualTo("{json:message}"));
+            Assert.That(item.Headers!["Authorization"], Is.EqualTo("Bearer $TOKEN$"));
+            Assert.That(item.Headers!["X-Price"], Is.EqualTo("$USD or $EUR"));
+        });
+    }
+
+    [Test]
+    public void MigrateLegacyResponseSyntax_ConvertsArglessAndNestedTokens()
+    {
+        var item = CustomUploaderItem.Init();
+        item.Version = "0.22.255";
+        item.URL = "$response$";
+        item.ThumbnailURL = "$json:data.thumb$";
+
+        item.MigrateLegacyResponseSyntax();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.URL, Is.EqualTo("{response}"));
+            Assert.That(item.ThumbnailURL, Is.EqualTo("{json:data.thumb}"));
+        });
+    }
+
+    [Test]
     public void CheckBackwardCompatibility_StillMigratesLegacyShareXVersionedFile()
     {
         // The existing path for genuinely old ShareX files (<= 13.7.1) keeps working.

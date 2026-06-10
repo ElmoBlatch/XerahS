@@ -29,7 +29,6 @@ using Newtonsoft.Json;
 using XerahS.Common;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Text;
 
 namespace XerahS.Uploaders
 {
@@ -372,80 +371,11 @@ namespace XerahS.Uploaders
 
             if (SystemInfo.CompareVersion(Version, "13.7.1") <= 0)
             {
-                RequestURL = MigrateOldSyntax(RequestURL);
-
-                if (Parameters != null)
-                {
-                    foreach (string key in Parameters.Keys.ToList())
-                    {
-                        Parameters[key] = MigrateOldSyntax(Parameters[key]);
-                    }
-                }
-
-                if (Headers != null)
-                {
-                    foreach (string key in Headers.Keys.ToList())
-                    {
-                        Headers[key] = MigrateOldSyntax(Headers[key]);
-                    }
-                }
-
-                if (Arguments != null)
-                {
-                    foreach (string key in Arguments.Keys.ToList())
-                    {
-                        Arguments[key] = MigrateOldSyntax(Arguments[key]);
-                    }
-                }
-
-                if (Data != null)
-                {
-                    Data = Data.Replace("$input$", "{input}", StringComparison.OrdinalIgnoreCase).
-                        Replace("$filename$", "{filename}", StringComparison.OrdinalIgnoreCase);
-                }
-
-                URL = MigrateOldSyntax(URL);
-                ThumbnailURL = MigrateOldSyntax(ThumbnailURL);
-                DeletionURL = MigrateOldSyntax(DeletionURL);
-                ErrorMessage = MigrateOldSyntax(ErrorMessage);
-
+                // Genuinely old ShareX (<= 13.7.1) files use the legacy $func:arg$ syntax; convert it
+                // through the same targeted converter (only known function tokens, never literal '$').
+                MigrateLegacyResponseSyntax();
                 Version = SystemInfo.GetApplicationVersion();
             }
-        }
-
-        private string MigrateOldSyntax(string input)
-        {
-            if (string.IsNullOrEmpty(input))
-            {
-                return input;
-            }
-
-            StringBuilder sbInput = new StringBuilder();
-
-            bool start = true;
-
-            for (int i = 0; i < input.Length; i++)
-            {
-                if (input[i] == '$')
-                {
-                    sbInput.Append(start ? '{' : '}');
-                    start = !start;
-                    continue;
-                }
-                else if (input[i] == '\\')
-                {
-                    i++;
-                    continue;
-                }
-                else if (input[i] == '{' || input[i] == '}')
-                {
-                    sbInput.Append('\\');
-                }
-
-                sbInput.Append(input[i]);
-            }
-
-            return sbInput.ToString();
         }
 
         /// <summary>
@@ -481,11 +411,7 @@ namespace XerahS.Uploaders
                 }
             }
 
-            if (!string.IsNullOrEmpty(Data) && Data.IndexOf('{') < 0)
-            {
-                Data = Data.Replace("$input$", "{input}", StringComparison.OrdinalIgnoreCase)
-                    .Replace("$filename$", "{filename}", StringComparison.OrdinalIgnoreCase);
-            }
+            Data = MigrateFieldIfLegacy(Data);
 
             URL = MigrateFieldIfLegacy(URL);
             ThumbnailURL = MigrateFieldIfLegacy(ThumbnailURL);
@@ -493,32 +419,26 @@ namespace XerahS.Uploaders
             ErrorMessage = MigrateFieldIfLegacy(ErrorMessage);
         }
 
+        // The complete legacy ShareX custom-uploader function vocabulary. Only these $func[:args]$ tokens
+        // are converted; every other '$' is left intact. Keep in sync with the Functions/ directory.
+        private static readonly System.Text.RegularExpressions.Regex LegacyFunctionToken =
+            new(@"\$(json|xml|regex|response|responseurl|header|input|inputbox|prompt|outputbox|base64|random|select|filename)(:[^$]*)?\$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
         /// <summary>
-        /// Runs <see cref="MigrateOldSyntax"/> on a field only when it still uses the legacy ShareX
-        /// <c>$func:arg$</c> syntax. Fields that already use the modern <c>{func:arg}</c> form (or contain
-        /// literal braces) are returned unchanged, because <see cref="MigrateOldSyntax"/> is not
-        /// idempotent and would escape their braces.
+        /// Converts legacy ShareX <c>$func[:args]$</c> tokens to the modern <c>{func[:args]}</c> form,
+        /// rewriting ONLY recognized function tokens and leaving every other <c>$</c> untouched (currency,
+        /// custom placeholders, regex anchors, already-modern <c>{...}</c>). This is idempotent and never
+        /// corrupts literal dollar signs — unlike a blind brace toggle over the whole string.
         /// </summary>
-        private string MigrateFieldIfLegacy(string input)
+        private static string MigrateFieldIfLegacy(string input)
         {
             if (string.IsNullOrEmpty(input))
             {
                 return input;
             }
 
-            // Already modern (or contains literal braces): never re-run the migration.
-            if (input.IndexOf('{') >= 0)
-            {
-                return input;
-            }
-
-            // Only convert when a legacy `$func...$` token pair is actually present.
-            if (!System.Text.RegularExpressions.Regex.IsMatch(input, @"\$[A-Za-z][^$]*\$"))
-            {
-                return input;
-            }
-
-            return MigrateOldSyntax(input);
+            return LegacyFunctionToken.Replace(input, static m => "{" + m.Groups[1].Value + m.Groups[2].Value + "}");
         }
 
         private void CheckRequestURL()
