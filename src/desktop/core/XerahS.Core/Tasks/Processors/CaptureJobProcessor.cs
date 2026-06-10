@@ -123,7 +123,18 @@ namespace XerahS.Core.Tasks.Processors
                 if (info.Metadata?.Image != null && PlatformServices.UI != null)
                 {
                     editorResult = await PlatformServices.UI.ShowEditorSessionAsync(info.Metadata.Image, taskMode: true);
-                    if (editorResult?.RenderedImage != null)
+
+                    // In task mode the editor returns a result only when the user chose "Continue".
+                    // A null result means they cancelled/closed it (Esc, the Cancel button, or the window
+                    // close button), so discard the capture and abort the after-capture workflow before
+                    // save, clipboard, or upload can run.
+                    if (editorResult == null)
+                    {
+                        DebugHelper.WriteLine("Annotation editor cancelled by user; discarding capture and aborting after-capture workflow.");
+                        return false;
+                    }
+
+                    if (editorResult.RenderedImage != null)
                     {
                         if (info.Metadata.Image != editorResult.RenderedImage)
                         {
