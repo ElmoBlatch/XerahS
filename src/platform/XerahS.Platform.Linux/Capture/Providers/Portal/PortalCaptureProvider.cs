@@ -23,20 +23,24 @@
 
 #endregion License Information (GPL v3)
 
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using XerahS.Platform.Linux.Capture.Contracts;
 using XerahS.Platform.Linux;
+using XerahS.Platform.Linux.Services;
 
 namespace XerahS.Platform.Linux.Capture.Providers;
 
 internal sealed class PortalCaptureProvider : ILinuxCaptureProvider
 {
     private readonly ILinuxCaptureRuntime _runtime;
+    private readonly Func<bool> _isGrimAvailable;
 
-    public PortalCaptureProvider(ILinuxCaptureRuntime runtime)
+    public PortalCaptureProvider(ILinuxCaptureRuntime runtime, Func<bool>? isGrimAvailable = null)
     {
         _runtime = runtime;
+        _isGrimAvailable = isGrimAvailable ?? (() => LinuxExecutable.IsAvailable("grim"));
     }
 
     public string ProviderId => "portal";
@@ -54,13 +58,12 @@ internal sealed class PortalCaptureProvider : ILinuxCaptureProvider
         // COSMIC's Screenshot portal is interactive (it opens cosmic-screenshot) and unreliable here,
         // so a silent full-screen grab — e.g. the background for the XerahS region overlay — must
         // prefer the wlroots/grim provider instead of popping the portal UI. Only decline when grim is
-        // actually viable (Wayland, non-sandboxed, modern capture) so a full-screen request is never
-        // left without a provider. See XIP0079.
+        // actually installed and the request wants modern capture, so a full-screen request is never
+        // left without a provider. Shares the COSMIC/Wayland/sandbox/grim predicate with the runtime's
+        // portal block. See XIP0079.
         if (request.Kind == LinuxCaptureKind.FullScreen &&
             request.UseModernCapture &&
-            context.IsWayland &&
-            !context.IsSandboxed &&
-            string.Equals(context.Desktop, "COSMIC", System.StringComparison.Ordinal))
+            LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(context, _isGrimAvailable()))
         {
             return false;
         }

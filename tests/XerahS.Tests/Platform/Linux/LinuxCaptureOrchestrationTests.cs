@@ -285,7 +285,10 @@ public class LinuxCaptureOrchestrationTests
     public void PortalProvider_CosmicWayland_DeclinesFullScreenSoGrimIsUsed()
     {
         var runtime = new NoOpRuntime();
-        var portalProvider = new PortalCaptureProvider(runtime);
+        // grim installed: the provider can hand full-screen off to grim, so it declines the portal.
+        var portalProvider = new PortalCaptureProvider(runtime, isGrimAvailable: () => true);
+        // grim missing: declining would leave the request with no provider, so the portal must handle it.
+        var portalProviderNoGrim = new PortalCaptureProvider(runtime, isGrimAvailable: () => false);
 
         var cosmic = new LinuxCaptureContext(isWayland: true, desktop: "COSMIC", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
         var gnome = new LinuxCaptureContext(isWayland: true, desktop: "GNOME", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
@@ -307,6 +310,10 @@ public class LinuxCaptureOrchestrationTests
             // so a capture is never left without a provider.
             Assert.That(portalProvider.CanHandle(legacyFullScreen, cosmic), Is.True,
                 "Portal must still handle full-screen on COSMIC when grim is unavailable.");
+            // If grim is not installed at all, the portal must handle even a modern full-screen request —
+            // otherwise the capture is left without any provider on COSMIC Wayland.
+            Assert.That(portalProviderNoGrim.CanHandle(fullScreen, cosmic), Is.True,
+                "Portal must handle full-screen on COSMIC when grim is not installed.");
             // GNOME (and other desktops) are unchanged.
             Assert.That(portalProvider.CanHandle(fullScreen, gnome), Is.True,
                 "GNOME full-screen portal behavior must be unchanged.");
@@ -317,19 +324,25 @@ public class LinuxCaptureOrchestrationTests
     public void ShouldBlockCosmicScreenshotPortal_OnlyOnCosmicWayland()
     {
         var cosmic = new LinuxCaptureContext(isWayland: true, desktop: "COSMIC", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
+        var cosmicSandboxed = new LinuxCaptureContext(isWayland: true, desktop: "COSMIC", compositor: "WAYLAND", isSandboxed: true, hasScreenshotPortal: true);
         var gnome = new LinuxCaptureContext(isWayland: true, desktop: "GNOME", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
         var kde = new LinuxCaptureContext(isWayland: true, desktop: "KDE", compositor: "WAYLAND", isSandboxed: false, hasScreenshotPortal: true);
         var cosmicX11 = new LinuxCaptureContext(isWayland: false, desktop: "COSMIC", compositor: "X11", isSandboxed: false, hasScreenshotPortal: true);
 
         Assert.Multiple(() =>
         {
-            // COSMIC's portal is the interactive cosmic-screenshot UI; XerahS must never invoke it.
-            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmic), Is.True);
+            // COSMIC's portal is the interactive cosmic-screenshot UI; with grim installed XerahS has a
+            // working alternative, so it must never invoke the portal.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmic, grimAvailable: true), Is.True);
+            // grim missing → the portal is the only capture path left on COSMIC Wayland; do not block it.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmic, grimAvailable: false), Is.False);
+            // Sandboxed (flatpak) sessions must use the portal regardless; grim can't reach the compositor.
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmicSandboxed, grimAvailable: true), Is.False);
             // Every other desktop keeps using the portal as before.
-            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(gnome), Is.False);
-            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(kde), Is.False);
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(gnome, grimAvailable: true), Is.False);
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(kde, grimAvailable: true), Is.False);
             // A (hypothetical) COSMIC-on-X11 session can use normal X11 capture, so don't special-case it.
-            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmicX11), Is.False);
+            Assert.That(LinuxScreenCaptureService.ShouldBlockCosmicScreenshotPortal(cosmicX11, grimAvailable: true), Is.False);
         });
     }
 
