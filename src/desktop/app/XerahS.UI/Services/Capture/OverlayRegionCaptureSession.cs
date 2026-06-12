@@ -94,6 +94,7 @@ internal static class OverlayRegionCaptureSession
                         UseTransparentOverlay = useFastOverlay,
                         EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(options?.WorkflowId),
                         PreferredFocusPoint = preferredFocusPoint,
+                        CursorPointProvider = ResolvePreferredFocusPoint,
                     }
                 };
 
@@ -148,6 +149,7 @@ internal static class OverlayRegionCaptureSession
                         EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(effectiveOptions?.WorkflowId),
                         SessionStartUtc = sessionStartUtc,
                         PreferredFocusPoint = preferredFocusPoint,
+                        CursorPointProvider = ResolvePreferredFocusPoint,
                     }
                 };
 

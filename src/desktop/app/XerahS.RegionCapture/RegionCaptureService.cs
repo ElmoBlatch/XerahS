@@ -173,4 +173,13 @@ public sealed record RegionCaptureOptions
     /// passed as null, never coerced to (0,0). See XIP0081.
     /// </summary>
     public PixelPoint? PreferredFocusPoint { get; init; }
+
+    /// <summary>
+    /// Re-reads the live cursor position in logical desktop coordinates, returning null when
+    /// unavailable. <see cref="PreferredFocusPoint"/> is a snapshot taken before the overlays exist
+    /// and can be stale under Wayland (xdotool only tracks the pointer over XWayland surfaces); once
+    /// the overlays cover every monitor the position reads live, so OverlayManager probes this after
+    /// mapping to correct a wrong initial focus pick (XIP0081).
+    /// </summary>
+    public Func<PixelPoint?>? CursorPointProvider { get; init; }
 }

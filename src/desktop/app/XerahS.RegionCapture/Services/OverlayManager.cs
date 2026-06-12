@@ -97,9 +97,16 @@ public sealed class OverlayManager : IDisposable
                 ? _overlays[focusIndex]
                 : null;
 
+            string cursorText = options?.PreferredFocusPoint is { } cursorPoint
+                ? $"({cursorPoint.X},{cursorPoint.Y})"
+                : "unknown";
+            DebugHelper.WriteLine(
+                $"[OverlayFocus] Initial focus -> index {focusIndex} ({(focusIndex >= 0 && focusIndex < monitors.Count ? monitors[focusIndex].DeviceName : "none")}), cursor={cursorText}");
+
             // Show the focus overlay first and focus it immediately so the compositor has one clear focus target (reduces pointer-event delay on Wayland)
             if (focusOverlay != null)
             {
+                focusOverlay.IsInitialFocusTarget = true;
                 focusOverlay.Show();
                 focusOverlay.Activate();
                 focusOverlay.Focus();
@@ -128,6 +135,12 @@ public sealed class OverlayManager : IDisposable
                 focusOverlay.Focus();
             }
 
+            // The pre-capture cursor read (xdotool) goes stale under Wayland whenever the pointer sits
+            // over a native surface, so the initial pick can be wrong. Once the XWayland overlays cover
+            // every monitor the pointer position reads live again — probe it after mapping settles and
+            // transfer focus if it disagrees with the initial pick (XIP0081).
+            SchedulePostMapFocusCorrection(monitors, focusIndex, options);
+
             if (options?.SessionStartUtc is { } start)
             {
                 double elapsedMs = (DateTime.UtcNow - start).TotalMilliseconds;
@@ -140,6 +153,67 @@ public sealed class OverlayManager : IDisposable
         finally
         {
             CloseAllOverlays();
+        }
+    }
+
+    private static readonly int[] PostMapCursorProbeDelaysMs = [250, 700];
+
+    private async void SchedulePostMapFocusCorrection(
+        IReadOnlyList<MonitorInfo> monitors,
+        int initialFocusIndex,
+        RegionCaptureOptions? options)
+    {
+        var cursorProvider = options?.CursorPointProvider;
+        if (cursorProvider is null)
+            return;
+
+        foreach (int delayMs in PostMapCursorProbeDelaysMs)
+        {
+            await Task.Delay(delayMs);
+
+            if (_disposed)
+                return;
+
+            PixelPoint? probe = null;
+            try
+            {
+                probe = cursorProvider();
+            }
+            catch
+            {
+                // Cursor probe is best-effort; the initial pick and real-pointer claims still apply.
+            }
+
+            if (probe is not { } point)
+                continue;
+
+            int liveIndex = -1;
+            for (int i = 0; i < monitors.Count; i++)
+            {
+                if (monitors[i].OverlayBounds.Contains(point))
+                {
+                    liveIndex = i;
+                    break;
+                }
+            }
+
+            DebugHelper.WriteLine(
+                $"[OverlayFocus] Post-map cursor probe: ({point.X},{point.Y}) -> index {liveIndex} (initial {initialFocusIndex})");
+
+            if (liveIndex < 0 || liveIndex >= _overlays.Count)
+                continue;
+
+            // Always re-assert the live cursor's overlay, even when it matches the initial pick: a
+            // transitional synthetic pointer claim may have moved the active window in the meantime,
+            // so agreeing with the initial index is not proof the right overlay is focused.
+            int claimIndex = liveIndex;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed)
+                    return;
+
+                _overlays[claimIndex].ClaimActiveWindow("post-map cursor probe");
+            }, Avalonia.Threading.DispatcherPriority.Input);
         }
     }
 

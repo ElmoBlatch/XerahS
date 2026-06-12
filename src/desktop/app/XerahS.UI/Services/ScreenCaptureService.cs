@@ -43,7 +43,7 @@ namespace XerahS.UI.Services
     public class ScreenCaptureService : IScreenCaptureService, ILinuxRegionCaptureCapabilityProvider, ILinuxRegionSelectorDiagnosticsProvider
     {
         private const string LinuxOverlayProviderId = "xerahs-overlay";
-        private static readonly SemaphoreSlim MacOSInteractiveRegionCaptureGate = new(1, 1);
+        private static readonly SemaphoreSlim InteractiveRegionCaptureGate = new(1, 1);
         private readonly IScreenCaptureService _platformImpl;
         private readonly LinuxRegionSelectorResolver _linuxResolver;
 
@@ -60,12 +60,12 @@ namespace XerahS.UI.Services
 
         public async Task<SKRectI> SelectRegionAsync(CaptureOptions? options = null)
         {
-            if (!TryBeginMacOSInteractiveRegionCapture(nameof(SelectRegionAsync), out var macOSCaptureScope))
+            if (!TryBeginInteractiveRegionCapture(nameof(SelectRegionAsync), out var captureScope))
             {
                 return SKRectI.Empty;
             }
 
-            using (macOSCaptureScope)
+            using (captureScope)
             {
                 return await SelectRegionCoreAsync(options);
             }
@@ -164,12 +164,12 @@ namespace XerahS.UI.Services
 
         public async Task<SKBitmap?> CaptureRegionAsync(CaptureOptions? options = null)
         {
-            if (!TryBeginMacOSInteractiveRegionCapture(nameof(CaptureRegionAsync), out var macOSCaptureScope))
+            if (!TryBeginInteractiveRegionCapture(nameof(CaptureRegionAsync), out var captureScope))
             {
                 return null;
             }
 
-            using (macOSCaptureScope)
+            using (captureScope)
             {
                 return await CaptureRegionCoreAsync(options);
             }
@@ -661,40 +661,43 @@ namespace XerahS.UI.Services
             await Task.Delay(300);
         }
 
-        private static bool TryBeginMacOSInteractiveRegionCapture(string operation, out IDisposable? captureScope)
+        private static bool TryBeginInteractiveRegionCapture(string operation, out IDisposable? captureScope)
         {
             captureScope = null;
 
-            if (!OperatingSystem.IsMacOS())
+            // One interactive selector at a time on EVERY platform. Concurrent overlay sessions
+            // photograph each other's frozen dim overlays during the full-screen pre-capture, so the
+            // new session's background shows a stale desktop instead of live windows (seen on COSMIC
+            // when the capture hotkey was pressed while an overlay was already open).
+            if (!InteractiveRegionCaptureGate.Wait(0))
             {
-                return true;
-            }
-
-            if (!MacOSInteractiveRegionCaptureGate.Wait(0))
-            {
-                DebugHelper.WriteLine($"[RegionCapture] macOS interactive selector '{operation}' ignored because another selector is already active.");
+                DebugHelper.WriteLine($"[RegionCapture] Interactive selector '{operation}' ignored because another selector is already active.");
                 DebugHelper.Flush();
                 return false;
             }
 
-            captureScope = new MacOSInteractiveRegionCaptureScope(operation);
+            captureScope = new InteractiveRegionCaptureScope(operation);
             return true;
         }
 
-        private sealed class MacOSInteractiveRegionCaptureScope : IDisposable
+        private sealed class InteractiveRegionCaptureScope : IDisposable
         {
             private readonly string _operation;
             private bool _restoreHotkeys;
             private bool _previousHotkeySuspended;
             private bool _disposed;
 
-            public MacOSInteractiveRegionCaptureScope(string operation)
+            public InteractiveRegionCaptureScope(string operation)
             {
                 _operation = operation;
 
                 try
                 {
-                    if (PlatformServices.IsInitialized)
+                    // Hotkey suspension stays macOS-only: on macOS the initiating shortcut's event tap
+                    // can re-fire into /usr/sbin/screencapture. On Linux the semaphore alone is the
+                    // guard — COSMIC delivers shortcuts via secondary-instance args, which in-process
+                    // hotkey suspension cannot intercept anyway.
+                    if (OperatingSystem.IsMacOS() && PlatformServices.IsInitialized)
                     {
                         // macOS has two mutually exclusive interactive selectors: /usr/sbin/screencapture
                         // and the XerahS overlay. Keep global hotkeys suspended while either selector is
@@ -735,7 +738,7 @@ namespace XerahS.UI.Services
                 }
                 finally
                 {
-                    MacOSInteractiveRegionCaptureGate.Release();
+                    InteractiveRegionCaptureGate.Release();
                 }
             }
         }

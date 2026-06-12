@@ -197,12 +197,12 @@ public partial class OverlayWindow : Window
         Focusable = true;
         ApplySelectionCursorPolicy();
 
-        // XIP0081: once mapped, every overlay covers its monitor, so the overlay physically under the
-        // pointer receives pointer-motion immediately (pointer delivery does not require focus). Claim the
-        // active window on the first pointer event so targeting is cursor-perfect even when OverlayManager's
-        // pre-capture cursor read (xdotool, which can be stale under Wayland) picked the wrong monitor.
-        PointerEntered += ClaimFocusOnFirstPointer;
-        AddHandler(PointerMovedEvent, ClaimFocusOnFirstPointer, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        // XIP0081: Avalonia raises a synthetic PointerMoved on EVERY overlay as it opens (both monitors
+        // within ~1 ms on COSMIC), so a first-event claim hands focus to whichever overlay opened last.
+        // Claims must come from real user input only: motion beyond a threshold from the first observed
+        // position, or a button press. The gate filters out the synthetic events.
+        AddHandler(PointerMovedEvent, ClaimFocusOnRealPointerMove, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, ClaimFocusOnPointerPress, RoutingStrategies.Tunnel | RoutingStrategies.Bubble, handledEventsToo: true);
 
         WireUpToolbarEvents();
     }
@@ -241,11 +241,17 @@ public partial class OverlayWindow : Window
             }, DispatcherPriority.Send);
         }
 
-        // Focus the capture control so it receives keyboard and pointer events
-        this.Focus();
-        _captureControl.Focus();
-        // On Linux/Wayland the compositor often grants focus with delay; retry focus a few times so pointer events (crosshair) start sooner
-        ScheduleDelayedFocusRetries();
+        // Only the overlay selected for initial focus may self-focus. Every overlay doing this fought
+        // over the active window (last one to open won), which is how region capture kept landing on
+        // the wrong monitor (XIP0081). Non-target overlays gain focus solely through real pointer
+        // claims or the post-map cursor probe in OverlayManager.
+        if (IsInitialFocusTarget)
+        {
+            this.Focus();
+            _captureControl.Focus();
+            // On Linux/Wayland the compositor often grants focus with delay; retry focus a few times so pointer events (crosshair) start sooner
+            ScheduleDelayedFocusRetries();
+        }
 
         LogActualWindowGeometry("OnOpened");
     }
@@ -307,19 +313,64 @@ public partial class OverlayWindow : Window
         }
     }
 
-    private bool _pointerFocusClaimed;
+    private readonly PointerFocusClaimGate _pointerClaimGate = new();
 
-    private void ClaimFocusOnFirstPointer(object? sender, PointerEventArgs e)
+    /// <summary>
+    /// True when OverlayManager selected this overlay for initial focus (cursor/primary/leftmost).
+    /// Only this overlay may self-focus on open; the rest must stay passive so they cannot steal the
+    /// active window from the selected monitor (XIP0081).
+    /// </summary>
+    internal bool IsInitialFocusTarget { get; set; }
+
+    private void ClaimFocusOnRealPointerMove(object? sender, PointerEventArgs e)
     {
-        if (_pointerFocusClaimed)
+        AvPixelPoint screenPoint;
+        try
+        {
+            screenPoint = this.PointToScreen(e.GetPosition(this));
+        }
+        catch
+        {
+            return;
+        }
+
+        // While the overlay maps, the compositor can move the window (COSMIC first places it on the
+        // cursor's output, then honors the requested position), so the same global cursor position
+        // yields different window-local coordinates across the synthetic open-time events — fake
+        // motion that window-local tracking mistakes for a real move (seen live: Display 2 claimed
+        // while the cursor sat on Display 1). Track screen coordinates instead, and ignore events
+        // whose position is not actually on this overlay's monitor.
+        if (!_monitor.OverlayBounds.Contains(new PixelPoint(screenPoint.X, screenPoint.Y)))
             return;
 
-        _pointerFocusClaimed = true;
+        if (_pointerClaimGate.ObserveMove(screenPoint.X, screenPoint.Y))
+        {
+            ClaimActiveWindow("pointer-move");
+        }
+    }
 
-        // The overlay the pointer is actually over is the user's real target — claim the active window
-        // so the cursor's monitor wins even when the pre-capture cursor read was stale.
+    private void ClaimFocusOnPointerPress(object? sender, PointerPressedEventArgs e)
+    {
+        if (_pointerClaimGate.ObservePress())
+        {
+            ClaimActiveWindow("pointer-press");
+        }
+    }
+
+    /// <summary>
+    /// Makes this overlay the active window and routes keyboard focus to the capture control.
+    /// Single path for every focus transfer: the initial selection, real-pointer claims, and the
+    /// post-map cursor probe all land here so the behavior stays consistent (XIP0081).
+    /// </summary>
+    internal void ClaimActiveWindow(string reason)
+    {
+        if (_windowClosed)
+            return;
+
+        DebugHelper.WriteLine($"[OverlayFocus] {_monitor.DeviceName}: claiming active window ({reason})");
         Activate();
         this.Focus();
+        _captureControl.Focus();
     }
 
     private async void ScheduleDelayedFocusRetries()
