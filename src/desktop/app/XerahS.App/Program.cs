@@ -752,8 +752,30 @@ namespace XerahS.App
 
         public static AppBuilder BuildAvaloniaApp()
         {
-            return AppBuilder.Configure<XerahS.UI.App>()
-                .UsePlatformDetect()
+            AppBuilder builder = AppBuilder.Configure<XerahS.UI.App>()
+                .UsePlatformDetect();
+
+            if (OperatingSystem.IsLinux())
+            {
+                // Force CPU rendering on Linux to avoid the Avalonia X11/GLX context-teardown
+                // deadlock on window close. Closing a transparent OverlayWindow (toast or capture
+                // overlay) makes the UI thread block in CompositingRenderer.Dispose ->
+                // SyncWaitCompositorBatch while the render thread is wedged in native GLX
+                // Session.Dispose under XWayland + Mesa (e.g. COSMIC), freezing the whole app.
+                // GPU buys us nothing here: the hot path is a large static full-monitor bitmap,
+                // the worst case for GLX texture upload. Avalonia's own close-ordering fixes
+                // (#7411/#10951/#18119) are already in 12.0.2 yet the driver-level teardown still
+                // hangs, so eliminating GLX is the only deterministic fix. Software is Avalonia's
+                // first-class CPU backend (the default GLX fallback); UseRetainedFramebuffer keeps
+                // the static overlay background to save a per-frame blit.
+                builder = builder.With(new X11PlatformOptions
+                {
+                    RenderingMode = new[] { X11RenderingMode.Software },
+                    UseRetainedFramebuffer = true,
+                });
+            }
+
+            return builder
                 .WithInterFont()
                 .LogToTrace();
         }
