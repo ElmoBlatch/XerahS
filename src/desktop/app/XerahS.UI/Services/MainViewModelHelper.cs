@@ -57,6 +57,11 @@ public static class MainViewModelHelper
     /// </summary>
     public static void WireCopyRequested(MainViewModel viewModel, Func<SkiaSharp.SKBitmap?>? getEditedSnapshot = null)
     {
+        // Suppress EditorView's built-in fallback copy handler. Without this flag the fallback
+        // also fires and overwrites our clipboard write with an unrooted DataTransfer whose
+        // bitmap can be collected before a paste target requests it (X11 serves data lazily),
+        // so pastes come up empty.
+        viewModel.HasHostCopyHandler = true;
         viewModel.CopyRequested += () =>
         {
             HandleCopyRequested(viewModel, getEditedSnapshot);
