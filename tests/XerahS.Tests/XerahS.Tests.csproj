@@ -110,6 +110,7 @@
              Link="Platform\Windows\WindowsSources\ClipboardDibCodec.cs" />
     <Compile Remove="Platform\Windows\WinRTCaptureStrategyTests.cs" />
     <Compile Remove="Platform\Windows\DxgiHdrToneMapperTests.cs" />
+    <Compile Remove="Platform\Windows\WindowsModernCaptureServiceTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

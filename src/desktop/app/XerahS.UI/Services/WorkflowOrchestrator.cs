@@ -87,7 +87,7 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
         // assistant", which forwards here instead of an in-process HotkeyTriggered event.
         Dispatcher.UIThread.Post(() =>
         {
-            _assistantOverlayCoordinator ??= new AssistantOverlayCoordinator();
+            _assistantOverlayCoordinator ??= new AssistantOverlayCoordinator(_taskManager);
             _assistantOverlayCoordinator.ShowOverlay();
         });
     }

@@ -450,6 +450,11 @@ public sealed class WindowDetectionService
         if (!OperatingSystem.IsLinux() || !MonitorEnumerationService.IsAvaloniaWaylandBackend())
             return default;
 
+        // Hover-path window detection must not throw in headless tests or before the platform
+        // bootstrap completes: PlatformServices.Window throws when services are unregistered.
+        if (!PlatformServices.IsInitialized)
+            return default;
+
         if (PlatformServices.Window is not PlatformLogicalWindowPointQueryService logicalPointQueryService)
             return default;
 
