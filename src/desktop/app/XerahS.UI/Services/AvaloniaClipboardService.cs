@@ -39,7 +39,7 @@ namespace XerahS.UI.Services;
 /// Implements <see cref="IClipboardService"/> using Avalonia's built-in <see cref="IClipboard"/> (no Windows Forms).
 /// Use this for the desktop Avalonia app; register after MainWindow is created.
 /// </summary>
-public sealed class AvaloniaClipboardService : IClipboardService
+public sealed partial class AvaloniaClipboardService : IClipboardService
 {
     private readonly IClipboard _clipboard;
     private readonly IStorageProvider? _storageProvider;
@@ -91,6 +91,7 @@ public sealed class AvaloniaClipboardService : IClipboardService
             _clipboard.SetTextAsync(text).GetAwaiter().GetResult();
             // Setting text replaces any image we put on the clipboard; release the kept-alive image transfer.
             ReleaseOwnedClipboardImage();
+            OnAfterSetText(text);
         });
     }
 
@@ -103,7 +104,7 @@ public sealed class AvaloniaClipboardService : IClipboardService
                 return null;
 
             using var stream = new MemoryStream();
-            bitmap.Save(stream);
+            bitmap.Save(stream, PngBitmapEncoderOptions.Default);
             stream.Position = 0;
             return SKBitmap.Decode(stream);
         });
@@ -120,6 +121,7 @@ public sealed class AvaloniaClipboardService : IClipboardService
         RunOnUIThread(() =>
         {
             SetImageBytesAsync(_clipboard, bytes).GetAwaiter().GetResult();
+            OnAfterSetImage(bytes);
         });
     }
 
@@ -195,7 +197,7 @@ public sealed class AvaloniaClipboardService : IClipboardService
                 return null;
 
             using var stream = new MemoryStream();
-            bitmap.Save(stream);
+            bitmap.Save(stream, PngBitmapEncoderOptions.Default);
             stream.Position = 0;
             return SKBitmap.Decode(stream);
         });
@@ -244,6 +246,7 @@ public sealed class AvaloniaClipboardService : IClipboardService
             return;
 
         await RunOnUIThreadAsync(() => _clipboard.SetTextAsync(text));
+        OnAfterSetText(text);
     }
 
     private async Task<string[]?> GetFileDropListCoreAsync()
@@ -391,4 +394,8 @@ public sealed class AvaloniaClipboardService : IClipboardService
 
         return await tcs.Task;
     }
+
+    partial void OnAfterSetText(string text);
+
+    partial void OnAfterSetImage(byte[] pngBytes);
 }

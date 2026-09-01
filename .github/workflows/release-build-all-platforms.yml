@@ -206,11 +206,13 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Install RPM tooling
+      - name: Install Linux packaging tools
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y rpm desktop-file-utils
+          sudo apt-get install -y rpm desktop-file-utils squashfs-tools file xvfb \
+            libx11-6 libx11-xcb1 libice6 libsm6 libfontconfig1 libgl1 libxcursor1 \
+            libxrandr2 libxi6 libxinerama1
 
       - name: Build Linux packages
         shell: bash
@@ -232,6 +234,37 @@ jobs:
           grep -Eq '(^|/)xerahs-watchfolder-daemon.runtimeconfig.json$' "$ARCHIVE_LIST"
           rm -f "$ARCHIVE_LIST"
 
+      - name: Validate AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          APPIMAGE="dist/XerahS-${VERSION}-${{ matrix.rid }}.AppImage"
+          test -f "$APPIMAGE"
+          chmod +x "$APPIMAGE"
+          file "$APPIMAGE" | grep -Ei 'ELF|executable'
+          WORKDIR="$(mktemp -d)"
+          cp "$APPIMAGE" "$WORKDIR/XerahS.AppImage"
+          chmod +x "$WORKDIR/XerahS.AppImage"
+          (cd "$WORKDIR" && APPIMAGE_EXTRACT_AND_RUN=1 ./XerahS.AppImage --appimage-extract)
+          test -x "$WORKDIR/squashfs-root/AppRun"
+          test -x "$WORKDIR/squashfs-root/usr/lib/xerahs/XerahS"
+          test -f "$WORKDIR/squashfs-root/xerahs.desktop"
+          test -f "$WORKDIR/squashfs-root/xerahs.png"
+          grep -q '^Name=XerahS$' "$WORKDIR/squashfs-root/xerahs.desktop"
+          echo "Launching extracted AppImage payload under Xvfb..."
+          set +e
+          timeout 25s xvfb-run -a "$WORKDIR/squashfs-root/AppRun"
+          status=$?
+          set -e
+          # 0 = clean exit; 124 = still running when timeout fired (GUI started).
+          if [ "$status" -ne 0 ] && [ "$status" -ne 124 ]; then
+            echo "AppImage failed to start (exit $status)"
+            exit 1
+          fi
+          echo "AppImage start check passed (exit $status)."
+          rm -rf "$WORKDIR"
+
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -241,6 +274,7 @@ jobs:
             dist/XerahS-${{ needs.validate-version.outputs.version }}-${{ matrix.rid }}.tar.gz
             dist/XerahS-${{ needs.validate-version.outputs.version }}-${{ matrix.rid }}.deb
             dist/XerahS-${{ needs.validate-version.outputs.version }}-${{ matrix.rid }}.rpm
+            dist/XerahS-${{ needs.validate-version.outputs.version }}-${{ matrix.rid }}.AppImage
 
       - name: Upload Linux build log
         if: always()
@@ -290,7 +324,7 @@ jobs:
         run: |
           set -o pipefail
           chmod +x ./build/linux/package-linux.sh
-          XERAHS_ARCHITECTURES="linux-x64" ./build/linux/package-linux.sh
+          XERAHS_SKIP_APPIMAGE=1 XERAHS_ARCHITECTURES="linux-x64" ./build/linux/package-linux.sh
 
       - name: Extract tarball to Flatpak staging dir
         shell: bash
@@ -314,6 +348,13 @@ jobs:
             echo "This means ShareX.VideoEditor was not built. Ensure git submodules are initialized."
             exit 1
           fi
+
+      - name: Validate and repair plugins in staging dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./build/linux/repair-flatpak-plugins.sh
+          ./build/linux/repair-flatpak-plugins.sh dist/xerahs-flatpak-staging linux-x64
 
       - name: Build Flatpak
         shell: bash
@@ -397,8 +438,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ needs.validate-version.outputs.release_title }}
-          prerelease: true
-          make_latest: false
+          # ShareX/XerahS: always pre-release. KovaForge/XerahS: full release (latest).
+          prerelease: ${{ github.repository != 'KovaForge/XerahS' }}
+          make_latest: ${{ github.repository == 'KovaForge/XerahS' }}
           files: |
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-win-x64.exe
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-win-x64.msi
@@ -409,9 +451,11 @@ jobs:
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-x64.tar.gz
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-x64.deb
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-x64.rpm
+            release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-x64.AppImage
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-arm64.tar.gz
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-arm64.deb
             release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-arm64.rpm
+            release-assets/XerahS-${{ needs.validate-version.outputs.version }}-linux-arm64.AppImage
             release-assets/com.xerahs.XerahS-${{ needs.validate-version.outputs.version }}-linux-x64.flatpak
           fail_on_unmatched_files: true
         env:
@@ -465,9 +509,58 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.validate-version.outputs.version }}
-          prerelease: true
-          make_latest: false
+          # Keep Chocolatey upload aligned with the same repo release policy.
+          prerelease: ${{ github.repository != 'KovaForge/XerahS' }}
+          make_latest: ${{ github.repository == 'KovaForge/XerahS' }}
           files: dist/chocolatey/xerahs.${{ needs.validate-version.outputs.version }}.nupkg
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-linux-repos:
+    if: github.ref_type == 'tag'
+    needs:
+      - validate-version
+      - release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download linux-x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release-x64
+          path: dist
+
+      - name: Download linux-arm64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-release-arm64
+          path: dist
+
+      - name: Install distro-repo tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev devscripts debhelper dput gnupg rpm python3-pip python3-setuptools
+          python3 -m pip install --user copr-cli osc
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Publish PPA / COPR / OBS
+        shell: bash
+        env:
+          LAUNCHPAD_PPA: ${{ secrets.LAUNCHPAD_PPA }}
+          LAUNCHPAD_GPG_PRIVATE_KEY: ${{ secrets.LAUNCHPAD_GPG_PRIVATE_KEY }}
+          LAUNCHPAD_GPG_PASSPHRASE: ${{ secrets.LAUNCHPAD_GPG_PASSPHRASE }}
+          LAUNCHPAD_GPG_KEY_ID: ${{ secrets.LAUNCHPAD_GPG_KEY_ID }}
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+          COPR_PROJECT: ${{ secrets.COPR_PROJECT }}
+          OSC_USERNAME: ${{ secrets.OSC_USERNAME }}
+          OSC_PASSWORD: ${{ secrets.OSC_PASSWORD }}
+          OBS_PROJECT: ${{ secrets.OBS_PROJECT }}
+        run: |
+          chmod +x .ai/skills/publish-release/scripts/prepare-distro-repo-assets.sh \
+                   .ai/skills/publish-release/scripts/publish-distro-repos.sh
+          .ai/skills/publish-release/scripts/publish-distro-repos.sh \
+            --tag "v${{ needs.validate-version.outputs.version }}" \
+            --repo "${{ github.repository }}"

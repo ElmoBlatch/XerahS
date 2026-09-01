@@ -1,3 +1,28 @@
+#region License Information (GPL v3)
+
+/*
+    XerahS - The Avalonia UI implementation of ShareX
+    Copyright (c) 2007-2026 ShareX Team
+
+    This program is free software; you can redistribute it and/or
+    modify it under the terms of the GNU General Public License
+    as published by the Free Software Foundation; either version 2
+    of the License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+    Optionally you can also view the license at <http://www.gnu.org/licenses/>.
+*/
+
+#endregion License Information (GPL v3)
+
 using System.Diagnostics;
 using NUnit.Framework;
 using XerahS.Platform.Linux.Services;
@@ -53,6 +78,7 @@ public class NotificationServiceProcessStartInfoTests
     }
 
     [Test]
+    [Platform(Exclude = "Win")]
     public void LinuxNotificationService_WaitForSuccessfulExit_KillsTimedOutProcess()
     {
         using var process = Process.Start(new ProcessStartInfo
@@ -74,6 +100,7 @@ public class NotificationServiceProcessStartInfoTests
     }
 
     [Test]
+    [Platform(Exclude = "Win")]
     public void MacOSNotificationService_WaitForSuccessfulExit_KillsTimedOutProcess()
     {
         using var process = Process.Start(new ProcessStartInfo
@@ -95,6 +122,7 @@ public class NotificationServiceProcessStartInfoTests
     }
 
     [Test]
+    [Platform(Exclude = "Win")]
     public void LinuxNotificationService_WaitForSuccessfulExit_ReturnsFalseForNonZeroExit()
     {
         using var process = Process.Start(new ProcessStartInfo
@@ -107,5 +135,31 @@ public class NotificationServiceProcessStartInfoTests
         Assert.That(process, Is.Not.Null);
 
         Assert.That(LinuxNotificationService.WaitForSuccessfulExit(process!, 2000), Is.False);
+    }
+
+    [Test]
+    public void LinuxNotificationService_CreateActionStartInfo_IncludesWaitAndActionFlags()
+    {
+        var startInfo = LinuxNotificationService.CreateActionStartInfo("Upload", "Done", "Open URL", NotificationType.Success);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(startInfo.RedirectStandardOutput, Is.True);
+            Assert.That(startInfo.ArgumentList, Does.Contain("--action"));
+            Assert.That(startInfo.ArgumentList, Does.Contain("--wait"));
+            Assert.That(startInfo.ArgumentList, Does.Contain($"{LinuxNotificationService.DefaultActionKey}=Open URL"));
+        });
+    }
+
+    [Test]
+    public void PortalNotificationService_MapPriority_MapsNotificationTypes()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PortalNotificationService.MapPriority(NotificationType.Success), Is.EqualTo("low"));
+            Assert.That(PortalNotificationService.MapPriority(NotificationType.Warning), Is.EqualTo("normal"));
+            Assert.That(PortalNotificationService.MapPriority(NotificationType.Error), Is.EqualTo("urgent"));
+            Assert.That(PortalNotificationService.MapPriority(NotificationType.Info), Is.EqualTo("normal"));
+        });
     }
 }

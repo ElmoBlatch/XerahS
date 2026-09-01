@@ -102,12 +102,7 @@ namespace XerahS.Platform.Windows
         }
         public async Task<SKBitmap?> CaptureRectAsync(SKRect rect, CaptureOptions? options = null)
         {
-            var captureSettings = options?.WorkflowId != null 
-                ? XerahS.Core.SettingsManager.GetWorkflowTaskSettings(options.WorkflowId)?.CaptureSettings 
-                : XerahS.Core.SettingsManager.DefaultTaskSettings.CaptureSettings;
-
-            // Default true to match TaskSettingsCapture.UseModernCapture and CaptureOptions; prefer DXGI over GDI.
-            bool useModern = options?.UseModernCapture ?? captureSettings?.UseModernCapture ?? true;
+            bool useModern = ShouldUseModernCapture(options);
 
             if (!IsSupported || !useModern)
             {
@@ -132,7 +127,7 @@ namespace XerahS.Platform.Windows
 
                     var cropped = new SKBitmap(cropRect.Width, cropRect.Height);
                     using var canvas = new SKCanvas(cropped);
-                    canvas.DrawBitmap(fullBitmap, cropRect, new SKRect(0, 0, cropRect.Width, cropRect.Height));
+                    canvas.DrawBitmap(fullBitmap, cropRect, new SKRect(0, 0, cropRect.Width, cropRect.Height), SKSamplingOptions.Default);
                     return cropped;
                 }
                 catch (Exception)
@@ -154,12 +149,7 @@ namespace XerahS.Platform.Windows
 
         public async Task<SKBitmap?> CaptureFullScreenAsync(CaptureOptions? options = null)
         {
-            var captureSettings = options?.WorkflowId != null 
-                ? XerahS.Core.SettingsManager.GetWorkflowTaskSettings(options.WorkflowId)?.CaptureSettings 
-                : XerahS.Core.SettingsManager.DefaultTaskSettings.CaptureSettings;
-
-            // Default true to match TaskSettingsCapture.UseModernCapture and CaptureOptions; prefer DXGI over GDI.
-            bool useModern = options?.UseModernCapture ?? captureSettings?.UseModernCapture ?? true;
+            bool useModern = ShouldUseModernCapture(options);
 
             if (!IsSupported || !useModern)
             {
@@ -185,6 +175,12 @@ namespace XerahS.Platform.Windows
             }
             return fullResult;
         }
+
+        /// <summary>
+        /// Resolves the capture backend policy supplied by the application layer.
+        /// </summary>
+        internal static bool ShouldUseModernCapture(CaptureOptions? options) =>
+            options?.UseModernCapture ?? true;
 
         public async Task<SKBitmap?> CaptureActiveWindowAsync(IWindowService windowService, CaptureOptions? options = null)
         {
@@ -329,8 +325,7 @@ namespace XerahS.Platform.Windows
                     {
                         try
                         {
-                            // Duplicate output
-                            var duplication = output.DuplicateOutput(device);
+                            var duplication = DxgiOutputDuplicationHelper.Create(output, device);
                             activeDuplications.Add((duplication, device, bounds, rotation, deviceName, dxgiRotation));
                         }
                         catch (Exception ex)
@@ -401,24 +396,46 @@ namespace XerahS.Platform.Windows
                                 var dataBox = device.ImmediateContext.Map(staging, 0, MapMode.Read);
                                 try
                                 {
-                                    // Draw to combined bitmap, applying output rotation correction.
-                                    DrawMappedTextureToCanvas(
-                                        dataBox,
-                                        (int)sourceDesc.Width,
-                                        (int)sourceDesc.Height,
-                                        bounds.Left - minX,
-                                        bounds.Top - minY,
-                                        bounds.Width,
-                                        bounds.Height,
-                                        rotation,
-                                        canvas);
+                                    if (DxgiHdrToneMapper.IsHdrFormat(sourceDesc.Format))
+                                    {
+                                        using var toneMapped = DxgiHdrToneMapper.TryConvertToBgra(dataBox, sourceDesc);
+                                        if (toneMapped == null)
+                                        {
+                                            XerahS.Common.DebugHelper.WriteLine(
+                                                $"CaptureFullScreenDxgi: HDR tone-map failed for {deviceName} ({sourceDesc.Format}).");
+                                        }
+                                        else
+                                        {
+                                            DrawSkBitmapToCanvas(
+                                                toneMapped,
+                                                bounds.Left - minX,
+                                                bounds.Top - minY,
+                                                bounds.Width,
+                                                bounds.Height,
+                                                rotation,
+                                                canvas);
+                                            capturedOutputCount++;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        DrawMappedTextureToCanvas(
+                                            dataBox,
+                                            (int)sourceDesc.Width,
+                                            (int)sourceDesc.Height,
+                                            bounds.Left - minX,
+                                            bounds.Top - minY,
+                                            bounds.Width,
+                                            bounds.Height,
+                                            rotation,
+                                            canvas);
+                                        capturedOutputCount++;
+                                    }
                                 }
                                 finally
                                 {
                                     device.ImmediateContext.Unmap(staging, 0);
                                 }
-
-                                capturedOutputCount++;
                             }
                         }
                         else
@@ -511,6 +528,20 @@ namespace XerahS.Platform.Windows
             }
         }
 
+        private void DrawSkBitmapToCanvas(
+            SKBitmap sourceBitmap,
+            int destX,
+            int destY,
+            int destWidth,
+            int destHeight,
+            ModeRotation rotation,
+            SKCanvas canvas)
+        {
+            using SKBitmap bitmapToDraw = RotateBitmapForDesktop(sourceBitmap, rotation);
+            var destRect = new SKRect(destX, destY, destX + destWidth, destY + destHeight);
+            canvas.DrawBitmap(bitmapToDraw, destRect, SKSamplingOptions.Default);
+        }
+
         private void DrawMappedTextureToCanvas(
             MappedSubresource dataBox,
             int sourceWidth,
@@ -540,7 +571,7 @@ namespace XerahS.Platform.Windows
 
             using SKBitmap bitmapToDraw = RotateBitmapForDesktop(sourceBitmap, rotation);
             var destRect = new SKRect(destX, destY, destX + destWidth, destY + destHeight);
-            canvas.DrawBitmap(bitmapToDraw, destRect);
+            canvas.DrawBitmap(bitmapToDraw, destRect, SKSamplingOptions.Default);
         }
 
         /// <summary>

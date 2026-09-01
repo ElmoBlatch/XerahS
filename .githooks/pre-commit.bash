@@ -49,7 +49,14 @@ if [ ${#STAGED_MD_FILES[@]} -gt 0 ]; then
     fi
 
     echo "Checking Markdown files for mojibake and BOM issues..."
-    "$PYTHON_CMD" "$MARKDOWN_CHECKER" "${STAGED_MD_FILES[@]}"
+    set +e
+    "$PYTHON_CMD" "$MARKDOWN_CHECKER" --fix "${STAGED_MD_FILES[@]}"
+    markdown_check_exit=$?
+    set -e
+    git add -- "${STAGED_MD_FILES[@]}"
+    if [ "$markdown_check_exit" -ne 0 ]; then
+        exit "$markdown_check_exit"
+    fi
 fi
 
 # --- C# files ---
@@ -108,6 +115,58 @@ if [ -n "$STAGED_KT_FILES" ]; then
             echo -e "  Missing: ${MISSING[*]}"
         fi
     done
+fi
+
+# --- XIP0077 U8: State JSON integrity check ---
+STATE_JSON="docs/reports/hourly_review_state.json"
+if git diff --cached --name-only | grep -qF "$STATE_JSON"; then
+    echo "Checking state JSON integrity ($STATE_JSON)..."
+    # Validate JSON syntax
+    if ! git show ":$STATE_JSON" | "$PYTHON_CMD" -m json.tool > /dev/null 2>&1; then
+        VIOLATIONS=$((VIOLATIONS + 1))
+        VIOLATION_FILES+=("$STATE_JSON")
+        echo -e "${RED}FAIL: $STATE_JSON is not valid JSON${NC}"
+    else
+        # Check last_runs didn't shrink by more than 1
+        if [ -n "$PYTHON_CMD" ]; then
+            SHRINK_CHECK=$("$PYTHON_CMD" -c "
+import json, subprocess, sys
+try:
+    staged = json.loads(subprocess.run(
+        ['git', 'show', ':$STATE_JSON'],
+        capture_output=True, text=True, check=True
+    ).stdout)
+    head = json.loads(subprocess.run(
+        ['git', 'show', 'HEAD:$STATE_JSON'],
+        capture_output=True, text=True, check=True
+    ).stdout)
+    staged_runs = len(staged.get('last_runs', []))
+    head_runs = len(head.get('last_runs', []))
+    if head_runs - staged_runs > 1:
+        print(f'SHRINK head={head_runs} staged={staged_runs}')
+    else:
+        print('OK')
+except Exception as e:
+    # Fail closed: treat hook error as rejection
+    print(f'ERROR {e}')
+" 2>&1)
+            case "$SHRINK_CHECK" in
+                SHRINK*)
+                    VIOLATIONS=$((VIOLATIONS + 1))
+                    VIOLATION_FILES+=("$STATE_JSON")
+                    echo -e "${RED}FAIL: $STATE_JSON last_runs shrank by more than 1 entry ($SHRINK_CHECK)${NC}"
+                    ;;
+                ERROR*)
+                    VIOLATIONS=$((VIOLATIONS + 1))
+                    VIOLATION_FILES+=("$STATE_JSON")
+                    echo -e "${RED}FAIL: $STATE_JSON integrity check errored ($SHRINK_CHECK)${NC}"
+                    ;;
+                *)
+                    echo -e "${GREEN}OK: $STATE_JSON integrity check passed${NC}"
+                    ;;
+            esac
+        fi
+    fi
 fi
 
 if [ ${#STAGED_MD_FILES[@]} -eq 0 ] && [ -z "$STAGED_CS_FILES" ] && [ -z "$STAGED_SWIFT_FILES" ] && [ -z "$STAGED_KT_FILES" ]; then

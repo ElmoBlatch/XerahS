@@ -84,11 +84,13 @@ namespace XerahS.Core.Tasks.Processors
                         return false;
                     }
 
-                    settings.AfterCaptureJob = result.Capture;
+                    settings.AfterCaptureJob = GetAfterCaptureTasksForRun(result);
                     settings.AfterUploadJob = result.Upload;
+                    info.SuppressCompletionNotification = result.QuickAction != AfterCaptureQuickAction.None;
 
                     // Persist "Show after capture window" setting if user unchecked it
-                    if (originalAfterCapture.HasFlag(AfterCaptureTasks.ShowAfterCaptureWindow) &&
+                    if (result.QuickAction == AfterCaptureQuickAction.None &&
+                        originalAfterCapture.HasFlag(AfterCaptureTasks.ShowAfterCaptureWindow) &&
                         !result.Capture.HasFlag(AfterCaptureTasks.ShowAfterCaptureWindow))
                     {
                         PersistShowAfterCaptureWindowSetting(settings.WorkflowId, false);
@@ -178,6 +180,11 @@ namespace XerahS.Core.Tasks.Processors
             if (settings.AfterCaptureJob.HasFlag(AfterCaptureTasks.DoOCR))
             {
                 await PerformOCRAsync(info);
+
+                if (settings.AfterCaptureJob.HasFlag(AfterCaptureTasks.CopyOcrTextToClipboard))
+                {
+                    TryCopyOcrTextToClipboard(info.Metadata?.OcrText);
+                }
             }
 
             // ScanQRCode
@@ -556,6 +563,42 @@ namespace XerahS.Core.Tasks.Processors
             await Task.CompletedTask;
         }
 
+        private static void TryCopyOcrTextToClipboard(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                DebugHelper.WriteLine("CopyOcrTextToClipboard skipped: OCR text is empty.");
+                return;
+            }
+
+            XerahS.Platform.Abstractions.IClipboardService? clipboardService;
+            try
+            {
+                clipboardService = PlatformServices.Clipboard;
+            }
+            catch (InvalidOperationException)
+            {
+                DebugHelper.WriteLine("CopyOcrTextToClipboard skipped: clipboard service unavailable.");
+                return;
+            }
+
+            if (clipboardService == null)
+            {
+                DebugHelper.WriteLine("CopyOcrTextToClipboard skipped: clipboard service unavailable.");
+                return;
+            }
+
+            try
+            {
+                clipboardService.SetText(text);
+                DebugHelper.WriteLine($"CopyOcrTextToClipboard: copied {text.Length} chars.");
+            }
+            catch (Exception ex)
+            {
+                DebugHelper.WriteException(ex, "CopyOcrTextToClipboard");
+            }
+        }
+
         private static string NormalizeOcrLanguage(string? language)
         {
             string? trimmedLanguage = language?.Trim();
@@ -763,6 +806,21 @@ namespace XerahS.Core.Tasks.Processors
                 DebugHelper.WriteException(ex, $"Upload failed for {instance.DisplayName}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Maps a terminal After Capture quick action to the tasks for this run while preserving
+        /// the workflow's ShowAfterCaptureWindow flag for future captures.
+        /// </summary>
+        internal static AfterCaptureTasks GetAfterCaptureTasksForRun(
+            (AfterCaptureTasks Capture, AfterUploadTasks Upload, bool Cancel, AfterCaptureQuickAction QuickAction) result)
+        {
+            if (result.QuickAction == AfterCaptureQuickAction.None)
+            {
+                return result.Capture;
+            }
+
+            return result.Capture | AfterCaptureTasks.ShowAfterCaptureWindow;
         }
 
         /// <summary>

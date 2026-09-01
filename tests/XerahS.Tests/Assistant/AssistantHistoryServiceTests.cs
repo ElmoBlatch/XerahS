@@ -36,21 +36,45 @@ namespace XerahS.Tests.Assistant;
 public sealed class AssistantHistoryServiceTests
 {
     private string? _originalPersonalFolder;
+    private string? _createdTempFolder;
 
     [SetUp]
     public void SetUp()
     {
         _originalPersonalFolder = SettingsManager.PersonalFolder;
-        SettingsManager.PersonalFolder = Path.Combine(Path.GetTempPath(), "xerahs-assistant-history-tests", Guid.NewGuid().ToString("N"));
+        _createdTempFolder = Path.Combine(Path.GetTempPath(), "xerahs-assistant-history-tests", Guid.NewGuid().ToString("N"));
+        SettingsManager.PersonalFolder = _createdTempFolder;
         Directory.CreateDirectory(SettingsManager.HistoryFolder);
     }
 
     [TearDown]
     public void TearDown()
     {
-        if (!string.IsNullOrEmpty(_originalPersonalFolder))
+        try
         {
-            SettingsManager.PersonalFolder = _originalPersonalFolder;
+            // Restore the original folder only if it was a real value; assigning
+            // null/empty would be silently dropped by PathsManager.PersonalFolder
+            // (its setter ignores blank strings), leaving the static in test state.
+            if (!string.IsNullOrEmpty(_originalPersonalFolder))
+            {
+                SettingsManager.PersonalFolder = _originalPersonalFolder;
+            }
+
+            // Best-effort cleanup of the temp folder this test created. Failures
+            // here must not break the test runner.
+            if (!string.IsNullOrEmpty(_createdTempFolder) && Directory.Exists(_createdTempFolder))
+            {
+                Directory.Delete(_createdTempFolder, recursive: true);
+            }
+        }
+        catch
+        {
+            // Ignore — TearDown must never mask test failures.
+        }
+        finally
+        {
+            _originalPersonalFolder = null;
+            _createdTempFolder = null;
         }
     }
 
@@ -196,6 +220,28 @@ public sealed class AssistantHistoryServiceTests
 
         Assert.That(items, Has.Count.EqualTo(1));
         Assert.That(items[0].OcrText, Is.EqualTo("Quarterly roadmap review"));
+    }
+
+    [Test]
+    public async Task SearchScreenshotsAsync_WhenIndexedHistoryFileWasDeleted_DoesNotMatchStaleOcrText()
+    {
+        string historyPath = SettingsManager.GetHistoryFilePath();
+        string filePath = Path.Combine(SettingsManager.HistoryFolder, "deleted-indexed-capture.png");
+
+        using (var connection = new SqliteConnection($"Data Source={historyPath}"))
+        {
+            connection.Open();
+            CreateHistoryTable(connection);
+            InsertHistoryItem(connection, filePath, new DateTime(2026, 5, 17, 7, 0, 0, DateTimeKind.Utc));
+        }
+
+        new HistoryOcrIndexStore(historyPath).UpsertText(1, filePath, null, "Private deleted receipt", "test", "en");
+
+        var service = new AssistantHistoryService();
+
+        IReadOnlyList<AssistantHistoryItem> items = await service.SearchScreenshotsAsync("receipt", 10, CancellationToken.None);
+
+        Assert.That(items, Is.Empty);
     }
 
     private static void CreateHistoryTable(SqliteConnection connection)

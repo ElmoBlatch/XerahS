@@ -184,6 +184,16 @@ namespace XerahS.UI.Services
                 DebugHelper.WriteLine($"[RegionCapture] macOS selector preference received: {requestedPreference}.");
             }
 
+            if (!EnsurePlatformCaptureAccess(
+                _platformImpl,
+                OperatingSystem.IsMacOS(),
+                ShowMacOSCapturePermissionDeniedNotification))
+            {
+                DebugHelper.WriteLine("[RegionCapture] macOS region capture stopped before opening selector UI because Screen Recording permission is denied.");
+                DebugHelper.Flush();
+                return null;
+            }
+
             if (ShouldUseMacOSNativeRegionCapture(options))
             {
                 DebugHelper.WriteLine("[RegionCapture] macOS native crosshair selected; using platform region capture without XerahS overlay.");
@@ -375,16 +385,16 @@ namespace XerahS.UI.Services
                 var delayMs = XerahS.Core.TaskHelpers.GetCaptureStartDelayMilliseconds(effectiveOptions.CaptureStartDelaySeconds);
                 var workflowId = string.IsNullOrWhiteSpace(effectiveOptions.WorkflowId) ? "none" : effectiveOptions.WorkflowId;
                 var workflowCategory = string.IsNullOrWhiteSpace(effectiveOptions.WorkflowCategory) ? "Unknown" : effectiveOptions.WorkflowCategory;
-                TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelaySeconds={effectiveOptions.CaptureStartDelaySeconds:F3}, DelayMs={delayMs}");
+                XerahS.Common.TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelaySeconds={effectiveOptions.CaptureStartDelaySeconds:F3}, DelayMs={delayMs}");
 
                 try
                 {
                     await Task.Delay(delayMs, effectiveOptions.CaptureStartDelayCancellationToken);
-                    TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelayCompleted=true");
+                    XerahS.Common.TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelayCompleted=true");
                 }
                 catch (OperationCanceledException)
                 {
-                    TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelayCancelled=true");
+                    XerahS.Common.TroubleshootingHelper.Log("CaptureDelay", "REGION", $"WorkflowId={workflowId}, Category={workflowCategory}, DelayCancelled=true");
                     DebugHelper.Flush();
                     return null;
                 }
@@ -651,6 +661,68 @@ namespace XerahS.UI.Services
         {
             return OperatingSystem.IsMacOS() &&
                 options?.MacOSRegionSelectorPreference == MacOSInteractiveRegionSelectorPreference.NativeCrosshair;
+        }
+
+        internal static bool EnsurePlatformCaptureAccess(
+            IScreenCaptureService platformImpl,
+            bool isMacOS,
+            Action? permissionDenied = null)
+        {
+            if (!isMacOS || platformImpl is not IScreenCapturePermissionService permissionService)
+            {
+                return true;
+            }
+
+            bool permissionGranted = permissionService.EnsureScreenCaptureAccess();
+            if (!permissionGranted)
+            {
+                permissionDenied?.Invoke();
+            }
+
+            return permissionGranted;
+        }
+
+        internal static ToastConfig CreateMacOSCapturePermissionDeniedToastConfig()
+        {
+            return new ToastConfig
+            {
+                Title = "Screen Recording permission required",
+                Text = "Enable XerahS in System Settings > Privacy & Security > Screen Recording, then restart XerahS.",
+                Duration = 10f,
+                Size = new SizeI(520, 140),
+                AutoHide = true,
+                IgnoreGlobalDisable = true,
+                LeftClickAction = ToastClickAction.CloseNotification
+            };
+        }
+
+        private static void ShowMacOSCapturePermissionDeniedNotification()
+        {
+            const string title = "Screen Recording permission required";
+            const string message = "Enable XerahS in System Settings > Privacy & Security > Screen Recording, then restart XerahS.";
+
+            try
+            {
+                if (PlatformServices.IsToastServiceInitialized)
+                {
+                    PlatformServices.Toast.ShowToast(CreateMacOSCapturePermissionDeniedToastConfig());
+                    DebugHelper.WriteLine("[RegionCapture] Displayed Screen Recording permission guidance toast.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugHelper.WriteException(ex, "[RegionCapture] Failed to show Screen Recording permission guidance toast");
+            }
+
+            try
+            {
+                PlatformServices.GetNotificationIfAvailable()?.ShowNotification(title, message);
+            }
+            catch (Exception ex)
+            {
+                DebugHelper.WriteException(ex, "[RegionCapture] Failed to show Screen Recording permission notification fallback");
+            }
         }
 
         private static async Task WaitForMacOSNativeSelectorReadinessAsync()

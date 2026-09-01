@@ -26,6 +26,8 @@
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using System;
+using System.IO;
 using System.Linq;
 using XerahS.Common;
 using XerahS.Core;
@@ -64,6 +66,27 @@ public class UpdateService : IDisposable
 
     public bool IsUpdateDialogOpen { get; private set; }
 
+    /// <summary>
+    /// True when this process runs inside a Flatpak sandbox. In that case the
+    /// Flatpak runtime owns upgrade notifications and delivery (via
+    /// <c>flatpak update</c>), so the in-app GitHub updater must not offer
+    /// <c>.deb</c> / <c>.rpm</c> assets that the sandbox cannot install.
+    /// Detection mirrors <see cref="XerahS.Common.DebugHelper"/> and the check
+    /// already used in <c>XerahS.App/Program.cs</c>: prefer <c>FLATPAK_ID</c>,
+    /// fall back to the well-known marker file inside the Flatpak rootfs.
+    /// </summary>
+    public static bool IsRuntimeManagedByFlatpak =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("FLATPAK_ID"))
+        || File.Exists("/.flatpak-info");
+
+    /// <summary>
+    /// Human-readable message for users who click "Check for updates" from
+    /// inside a Flatpak. Tells them to use the system update channel.
+    /// </summary>
+    public static string RuntimeManagedUpdateMessage =>
+        "Updates are managed by the Flatpak runtime. " +
+        "Run 'flatpak update com.xerahs.XerahS' in a terminal to upgrade.";
+
     private UpdateService()
     {
     }
@@ -80,12 +103,23 @@ public class UpdateService : IDisposable
             return;
         }
 
+        if (IsRuntimeManagedByFlatpak)
+        {
+            DebugHelper.WriteLine(
+                "UpdateService: Skipping GitHub update manager inside Flatpak sandbox " +
+                "(FLATPAK_ID='{0}'); upgrades are delivered by 'flatpak update'.",
+                Environment.GetEnvironmentVariable("FLATPAK_ID") ?? "<unset>");
+            return;
+        }
+
         var settings = SettingsManager.Settings;
         bool includePreRelease = settings.UpdateChannel == UpdateChannel.PreRelease;
-        var updateRepository = ResolveUpdateRepository(settings);
+        IReadOnlyList<(string Owner, string Repo)> updateRepositories = ResolveUpdateRepositories(settings);
+        var updateRepository = updateRepositories[0];
 
         _updateManager = new GitHubUpdateManager(updateRepository.Owner, updateRepository.Repo)
         {
+            GitHubRepositories = updateRepositories,
             IsPortable = IsPortableBuild(),
             IncludePreRelease = includePreRelease,
             AllowAutoUpdate = settings.AutoCheckUpdate
@@ -109,13 +143,17 @@ public class UpdateService : IDisposable
     {
         if (_updateManager == null)
         {
+            // Either initialization has not happened yet, or it was suppressed
+            // by the Flatpak runtime (see Initialize). Nothing to refresh.
             return;
         }
 
         var settings = SettingsManager.Settings;
-        var updateRepository = ResolveUpdateRepository(settings);
+        IReadOnlyList<(string Owner, string Repo)> updateRepositories = ResolveUpdateRepositories(settings);
+        var updateRepository = updateRepositories[0];
         bool includePreRelease = settings.UpdateChannel == UpdateChannel.PreRelease;
 
+        _updateManager.GitHubRepositories = updateRepositories;
         _updateManager.GitHubOwner = updateRepository.Owner;
         _updateManager.GitHubRepo = updateRepository.Repo;
         _updateManager.IncludePreRelease = includePreRelease;
@@ -125,16 +163,26 @@ public class UpdateService : IDisposable
 
     public static (string Owner, string Repo) ResolveUpdateRepository(ApplicationConfig settings)
     {
+        return ResolveUpdateRepositories(settings)[0];
+    }
+
+    public static IReadOnlyList<(string Owner, string Repo)> ResolveUpdateRepositories(ApplicationConfig settings)
+    {
         if (settings.UpdateChannel != UpdateChannel.PreRelease)
         {
-            return (DefaultReleaseOwner, DefaultRepo);
+            return [(DefaultReleaseOwner, DefaultRepo)];
         }
 
         return settings.PreReleaseUpdateSource switch
         {
-            PreReleaseUpdateSource.ShareX => (DefaultReleaseOwner, DefaultRepo),
-            PreReleaseUpdateSource.Custom => ResolveCustomPreReleaseRepository(settings.CustomPreReleaseUpdateSource),
-            _ => (DefaultPreReleaseOwner, DefaultRepo)
+            PreReleaseUpdateSource.ShareX => [(DefaultReleaseOwner, DefaultRepo)],
+            PreReleaseUpdateSource.Custom => [ResolveCustomPreReleaseRepository(settings.CustomPreReleaseUpdateSource)],
+            PreReleaseUpdateSource.Any =>
+            [
+                (DefaultReleaseOwner, DefaultRepo),
+                (DefaultPreReleaseOwner, DefaultRepo)
+            ],
+            _ => [(DefaultPreReleaseOwner, DefaultRepo)]
         };
     }
 
@@ -351,7 +399,16 @@ public class UpdateService : IDisposable
     {
         if (_updateManager == null)
         {
-            DebugHelper.WriteLine("UpdateService not initialized. Call Initialize() first.");
+            if (IsRuntimeManagedByFlatpak)
+            {
+                DebugHelper.WriteLine(
+                    "UpdateService: CheckForUpdatesAsync short-circuited inside Flatpak sandbox; " +
+                    "the Flatpak runtime owns upgrade delivery.");
+            }
+            else
+            {
+                DebugHelper.WriteLine("UpdateService not initialized. Call Initialize() first.");
+            }
             return UpdateStatus.UpdateCheckFailed;
         }
 

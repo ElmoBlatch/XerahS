@@ -27,6 +27,7 @@ using System.Diagnostics;
 using System.Drawing;
 using SkiaSharp;
 using XerahS.Common;
+using XerahS.Core.Capture;
 using XerahS.Core.Helpers;
 using XerahS.Core.Managers;
 using XerahS.Platform.Abstractions;
@@ -107,7 +108,7 @@ namespace XerahS.Core.Tasks.Pipeline
                 return PipelineStageResult.Continue; // proceed to finalization
             }
 
-            TroubleshootingHelper.Log(taskSettings!.Job.ToString(), "WORKER_TASK", "Entering capture phase (pipeline)");
+            XerahS.Common.TroubleshootingHelper.Log(taskSettings!.Job.ToString(), "WORKER_TASK", "Entering capture phase (pipeline)");
 
             SKBitmap? image = null;
             var captureStopwatch = Stopwatch.StartNew();
@@ -216,18 +217,18 @@ namespace XerahS.Core.Tasks.Pipeline
                 case WorkflowType.FileUpload:
                     if (string.IsNullOrEmpty(context.Info.FilePath) && WorkerTask.ShowOpenFileDialogCallback != null)
                     {
-                        TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", "Requesting file from user via dialog...");
+                        XerahS.Common.TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", "Requesting file from user via dialog...");
                         var selectedFile = await WorkerTask.ShowOpenFileDialogCallback();
                         
                         if (!string.IsNullOrEmpty(selectedFile))
                         {
-                            TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", $"User selected file: {selectedFile}");
+                            XerahS.Common.TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", $"User selected file: {selectedFile}");
                             context.Info.FilePath = selectedFile;
                             context.Info.DataType = EDataType.File;
                         }
                         else
                         {
-                            TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", "User cancelled file selection");
+                            XerahS.Common.TroubleshootingHelper.Log(taskSettings.Job.ToString(), "UI", "User cancelled file selection");
                             context.Status = TaskStatus.Stopped;
                             return PipelineStageResult.Stop;
                         }
@@ -378,8 +379,8 @@ namespace XerahS.Core.Tasks.Pipeline
                     {
                         return PipelineStageResult.Stop;
                     }
-                    var lastRegionRect = taskSettings!.CaptureSettings.CaptureCustomRegion;
-                    if (TryCreateConfiguredCaptureRect(lastRegionRect, out var lastRegionCaptureRect))
+                    if (LastRegionStore.TryGet(out var lastRegionRect) &&
+                        TryCreateConfiguredCaptureRect(lastRegionRect, out var lastRegionCaptureRect))
                     {
                         image = await PlatformServices.ScreenCapture.CaptureRectAsync(lastRegionCaptureRect, captureOptions);
                     }

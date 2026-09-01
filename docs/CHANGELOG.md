@@ -1,37 +1,476 @@
-## v0.22.239
-
-### Fixes
-- **Core**: Resolve startup log issues (83b367ab)
-- **Core**: parse raw openclaw plugin json output (4ce71989)
-- **Core**: redact openclaw plugin stdout diagnostics (fb0ee5ff)
-- **Core**: use core openclaw plugin sdk import (5868981b)
-
-### Build
-- **Core**: Attach ImageEditor during release prep (d84cc957)
-
-### Documentation
-- **Core**: Link changelog only for existing tags (314700ee)
-- **Core**: Link changelog tags and omit hashes (437b49b6)
-- **Core**: Update changelog for release prep (0ea08f80)
-
 # Changelog
+
 All notable changes to XerahS will be documented in this file.
+
 The format follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
+
 - **MAJOR** (x): Breaking changes (0 while unreleased)
 - **MINOR** (y): New features and enhancements
 - **PATCH** (z): Bug fixes and patches
 
+---
+
+## v0.28.0
+
+### Features
+- **Linux — Distro repos (#253)**: Add first-party Launchpad PPA, Fedora COPR, and openSUSE OBS publish support. `publish-release --publish-distro-repos` and the tag workflow upload when maintainer secrets are set, and skip a backend when they are not.
+
+---
+
+## v0.25.6
+
+### Features
+- **Linux**: Ship self-contained AppImage packages for linux-x64 and linux-arm64 (`XerahS-{version}-linux-{arch}.AppImage`) alongside tar.gz, deb, rpm, and Flatpak. Flatpak packaging is unchanged.
+
+---
+
+## v0.25.5
+
+### Fixes
+- **Linux ARM64 packaging**: Publish destination plugins one at a time so parallel `dotnet publish` races no longer drop plugin assemblies (Bitly failed the v0.25.4 arm64 build).
+
+---
+
+## v0.25.4
+
+### Fixes
+- **Start minimized to tray**: Honor the Application Settings checkbox on launch, including Debug builds. The main window no longer opens normally when **Start minimized to tray** is enabled.
+
+---
+
+## v0.25.3
+
+### Features
+- **Updates**: Add an **Any source** option under Pre-release source. When selected, XerahS checks both ShareX and KovaForge and installs the newest usable pre-release.
+
+---
+
+## v0.25.2
+
+### Features
+- **Image Editor**: Localize editor UI (28 languages); smart-eraser edge-matching fills; extract built-in toolbars and host toolbar chrome from ShareX through `ebcee2a63`
+
+### Fixes
+- **GitHub Gist**: Reject invalid CustomURLAPI hosts so a crafted gist destination cannot point the uploader at an unexpected API.
+
+---
+
+## v0.25.1
+
+- Keep the main window visible during hotkey and command-palette screenshots so XerahS itself can be captured. Navbar and tray captures still hide the window.
+
+## v0.25.0
+
+### Features
+- **Core**: Add native XBackBone destination
+- **Video Editor**: Seed watermarks from host image effects; close the advertised export path from the host; use the XerahS video editor title
+
+---
+
+## v0.24.25
+
+### Security
+- **Core**: Bump `SSH.NET` 2025.1.0 → 2026.0.0 to address CVE-2026-48798 / [GHSA-q939-rpr3-3284](https://github.com/advisories/GHSA-q939-rpr3-3284) (ScpClient arbitrary file write via server-controlled filenames in recursive directory download). Affects `XerahS.Uploaders` (SFTP/SCP) and `Ftp.Plugin` via central package management.
+
+### Fixes
+- **Core**: Honor minimized Windows startup; Notify on macOS capture denial; Preflight macOS screenshot permission
+
+### Performance
+- **Core**: Optimize searchable screenshot indexing
+
+### Changed
+- **KFIP0018**: x-twitter screen capture user needs research
+- **Xerahs Bugfix**: drain stale submodule citation (queue 1 -> 0); empty-queue audit (00:05 AWST); and related changes
+- **Xerahs Review**: backfill producer commit pointer (c40f60cd); daily producer tick (Nadia, 23:05 AWST); and related changes
+
+---
+
+## v0.24.23
+
+### Features
+- **Core**: Add Copy image / Copy file path quick actions in After Capture; Add global 'Disable notification window' checkbox (issue #252); and related changes
+
+### Fixes
+- **Core**: Bitly shortener surfaces network errors on UploadResult; Don't surface .deb / .rpm update assets inside a Flatpak sandbox; Synchronize HotkeySelectionControl static debug log
+- **Dropbox OAuth**: stop forced refresh on bare refresh_token
+- **PluginManifest**: ASCII-only PluginId whitelist
+- **RandomCrypto**: prevent int.MaxValue overflow in Next range
+
+### Documentation
+- **Core**: Document fallback to plain git push when wrapper is missing
+
+### Changed
+- **Core**: [Fix] Suppress main window on SilentRun startup — raise Dispatcher priority to Send; [Nadia] xerahs-review producer tick 2026-08-01 23:10 AWST: ingest Bitly Plugin SendRequest error handling; and related changes
+- **KFIP0017**: X/Twitter Capture Mode Suite — scroll capture, video clips & GIF conversion
+- **Source Build Manifest**: Wayland-first finish-args, absolute OUTPUT_PATH
+- **Xerahs Bugfix**: audit empty consumer queue; drain CliCaptureStrategy temp cleanup false-positive; and related changes
+- **Xerahs Review**: fill in producer-tick commit SHA on tracker; fill in producer-tick commit SHA on tracker (23:11 AWST); and related changes
+
+---
+
+## [v0.24.12](https://github.com/ShareX/XerahS/releases/tag/v0.24.12)
+
+### Changed
+- No user-facing commits were detected in this range.
+
+---
+
+## [v0.24.11](https://github.com/ShareX/XerahS/releases/tag/v0.24.11)
+
+### Changed
+- No user-facing commits were detected in this range.
+
+---
+
+## [v0.24.10](https://github.com/ShareX/XerahS/releases/tag/v0.24.10)
+
+### Documentation
+- **Xip**: XIP, IEIP, and KFIP proposals and related documentation
+
+### Changed
+- **Xerahs Bugfix**: empty-queue audit (queue=0)
+
+---
+
+## v0.24.8
+
+Special pre-release from `linux-hotkey-rewrite` (XIP0080): Linux global hotkeys via evdev, merged onto latest develop.
+
+### Features
+- **Linux — Hotkeys (XIP0080)**: New evdev-based global hotkey backend with key map, modifier tracking, and matching engine; wired into `LinuxPlatform` with GlobalShortcuts portal / X11 fallback when input access is unavailable.
+- **Linux — Diagnostics**: `doctor --linux-input` reports evdev hotkey readiness (device access, group membership, and backend selection).
+- **Linux — Packaging**: Ship udev rule and polkit policy so packages can grant `/dev/input/event*` access for global hotkeys; document setup steps.
+
+### Tests
+- **Linux — Hotkeys**: Unit coverage for evdev key map, modifier tracker, and hotkey matcher.
+
+---
+
+## v0.24.2
+
+### Features
+- **Core**: Add settings hub search with deep-link open; Add ShareX-style live search on main navigation
+
+### Fixes
+- **Core**: Auto-select first visible settings tab after search filter; Reject path traversal in ReClip set-watch-folder; and related changes
+
+### Documentation
+- **Core**: Add Cursor Cloud setup instructions to AGENTS.md; Drain stale and out-of-scope review candidates; and related changes
+
+### Changed
+- **Core**: [xerahs-review] Populate commit SHA on 23:00 AWST producer last_runs row; [xerahs-review] Populate commit SHA on 23:07 AWST producer last_runs row; and related changes
+- **Xerahs Bugfix**: drain 10 stale/misleading queue items (pivot-only tick); drain 4 stale/noise items from next_candidates (skill v1.1.8); and related changes
+
+---
+
+## v0.23.141
+
+### Features
+- **Developers**: add clawpatch-parser dashboard
+
+### Fixes
+- **Core**: Constrain ImageEffectPreset.Effects deserialization to known ImageEffect types; Default screenshot subfolder pattern to year-month; and related changes
+- **Immich**: clear stale SelectedAlbum when AlbumName diverges
+
+### Build
+- **Core**: Make release channel repo-scoped for ShareX vs KovaForge
+
+### Documentation
+- **Core**: Record dual-repo release targeting lessons
+
+### Changed
+- **Core**: [Fix] Treat .html/.htm as binary files — route to S3 not Paste2
+- **Xerahs Bugfix**: backfill last_runs for 08:05 tick audit trail; update tracker and state JSON after batch
+
+---
+
+## v0.23.132
+
+### Fixes
+- **Linux — Flatpak startup crash (#270)**: The sandboxed build crashed ~1 second after startup on desktops with a StatusNotifierWatcher (KDE Plasma, XFCE, …). Avalonia's tray icon requests the `org.kde.StatusNotifierItem-{pid}-{id}` session-bus name, the Flatpak D-Bus proxy denied it, and the resulting `DBusErrorReplyException` escaped on the UI thread. The manifest now grants `--own-name=org.kde.*` so the tray icon works, and the dispatcher treats DBus/FreeDesktop integration failures as non-fatal (log-and-continue) so restricted sandboxes can never take the app down.
+- **Linux — Startup diagnostics**: Startup failures no longer print misleading "Unable to connect to display server" / "run via flatpak-spawn" guidance for non-display errors; the real exception and the log file path are written to the console instead.
+- **Linux — Flatpak plugin cleaner**: Skip plugin folder cleanup on read-only file systems (`/app`) with a single log line instead of a warning per bundled file.
+
+---
+
+## v0.23.131
+
+### Fixes
+- **macOS — Screenshot subfolder**: Onboarding was not syncing the "Create subfolder with today's date" toggle to the `UseSaveImageSubFolderPattern` setting; the checkbox in Settings always defaulted to `true`, overriding the user's choice on macOS.
+
+---
+
+## v0.23.130
+
+### Features
+- **Core**: Add checkbox to enable/disable screenshot subfolder pattern
+- **Linux — Clipboard (XIP0079 P3)**: clipboard CLI probe, warnings, RPM Recommends, post-exit persistence
+- **Linux — Hotkeys (XIP0079 P1)**: hotkey delivery diagnostics, settings banner, ConfigureShortcuts v2 gate
+- **Linux — Notifications (XIP0079 P2)**: notification action buttons via portal and notify-send
+- **macOS — App bundle (XIP0078 P1)**: render macOS Info.plist from template with stable bundle identity
+- **macOS — Hotkeys (XIP0078 P4)**: Carbon RegisterEventHotKey backend, no Accessibility needed; SharpHook fallback
+- **macOS — Packaging (XIP0078 P2)**: env-gated codesign/notarize/DMG pipeline, ad-hoc signing default in package-mac.sh
+- **macOS — Permissions (XIP0078 P3)**: Screen Recording permission preflight, guided flow, macOS diagnostics
+- **macOS — Window capture (XIP0078 P5)**: CGWindowList native window enumeration, wire sck_capture_window
+
+### Fixes
+- **Core**: Align OpenClaw manifest --json flags with pinned test contract; Keep Linux-only UI sources off macOS builds; skip X11 hotkey test on non-Linux; Remove superseded SettingsViewModel.LinuxClipboard partial
+- **FileDownloader**: cancel outer loop on early HTTP EOF
+- **Linux — Mixed-DPI (XIP0079 P4)**: cumulative mixed-DPI monitor layout for vertical stacks
+
+### Refactor
+- **macOS — ScreenCaptureKit (XIP0078 P8)**: rewrite ScreenCaptureKitStrategy against native bridge, fix stale ShareX.Avalonia namespaces
+
+### Documentation
+- **Core**: Add macOS paths to port-imageeditor skill; Blog drafts (2026 series, add/update); and related changes
+- **Linux — Documentation (XIP0079 P5)**: Linux INSTALL parity, KNOWN_ISSUES update, implementation notes
+- **macOS — Documentation (XIP0078)**: XIP0078 marked implemented with 2026-07-07 implementation notes; lessons-learnt entry
+
+### Changed
+- **Core**: mirror ExpireAfterDays<=0 clamp in ToJson (symmetry with LoadFromJson); round-trip share-security fields + SecurityMatches reconcile; and related changes
+
+---
+
+## v0.23.129
+
+### Features
+- **Linux — Hotkeys (XIP0079 P1)**: Surface global-hotkey delivery state in Settings → Hotkeys (portal-bound, focus-only X11 fallback, or unavailable) with a warning banner; gate “configure in DE settings” on GlobalShortcuts portal v2+.
+- **Linux — Notifications (XIP0079 P2)**: After-upload toasts support real action buttons via portal `buttons` + `ActionInvoked`, with async `notify-send --action` fallback; notifications no longer block the UI thread.
+- **Linux — Clipboard (XIP0079 P3)**: Probe `wl-copy` / `xclip` at startup; show settings and diagnostic warnings when CLI clipboard tools are missing; `.rpm` now recommends `wl-clipboard` and `xclip` (matching `.deb`); new **Persist clipboard after exit** setting (Wayland default) hands copies to `wl-copy` so paste survives app quit.
+- **Linux — Mixed-DPI (XIP0079 P4)**: Fix vertically stacked monitors with different scale factors using cumulative physical layout; rollback via `XERAHS_LEGACY_MONITOR_NORMALIZER=1`.
+
+### Fixes
+- **Linux**: Cross-platform build fix — Linux-only UI partials excluded from macOS/Windows builds.
+
+### Documentation
+- **Linux (XIP0079 P5)**: Rewrite `developers/linux/INSTALL.md` for Ubuntu, Fedora, and Arch; update `KNOWN_ISSUES.md` Linux section; mark XIP0079 implemented with distro smoke-test checklist (manual VM runs pending).
+
+---
+
+## v0.23.128
+
+### Features
+- **macOS — App bundle (XIP0078 P1)**: Render `Info.plist` from template during app-bundle creation with stable bundle identity (`com.xerahs.app`).
+- **macOS — Permissions (XIP0078 P3)**: Screen Recording permission preflight before capture, guided flow, and macOS diagnostic reporting.
+- **macOS — Hotkeys (XIP0078 P4)**: Carbon `RegisterEventHotKey` backend (no Accessibility permission required); SharpHook remains as fallback (`XERAHS_MACOS_HOTKEY_BACKEND=sharphook` to roll back).
+- **macOS — Window capture (XIP0078 P5)**: Native `CGWindowList` window enumeration and ScreenCaptureKit per-window capture (`sck_capture_window` wired end-to-end).
+- **macOS — ScreenCaptureKit (XIP0078 P8)**: Rewrite capture strategy against native bridge; fix stale `ShareX.Avalonia` namespaces.
+
+### Build
+- **macOS (XIP0078 P2)**: Env-gated codesign, notarization, and DMG pipeline in `package-mac.sh`; ad-hoc signing default when no Apple Developer credentials are set.
+
+### Documentation
+- Mark XIP0078 implemented with 2026-07-07 implementation notes; lessons-learnt entry for verifying XIP claims against current source.
+
+---
+
+## v0.23.127
+
+### Fixes
+- **Tests**: Harden `AssistantHistoryServiceTests` teardown against flaky async cleanup.
+
+### Plugins
+- **Immich**: Round-trip share-security fields with `SecurityMatches` reconcile; mirror `ExpireAfterDays<=0` clamp in `ToJson`.
+
+---
+
+## v0.23.124
+
+### Fixes
+- **Core**: `FileDownloader` — cancel outer loop on early HTTP EOF instead of spinning until timeout.
+
+---
+
+## v0.23.121 / v0.23.120
+
+### Changed
+- Release version bumps only; no additional user-facing changes in these ranges.
+
+---
+
+## v0.23.119
+
+### Changed
+- **KFIP**: Add KFIP-0013 X/Twitter Smart Thumbnail Generation proposal.
+
+---
+
+## v0.23.118
+
+### Documentation
+- Blog drafts (2026-07-01 through 2026-07-05) and hourly-review sweep notes.
+
+### Changed
+- Hourly review sweeps (Wayland CLI capture routing, Immich album share, upstream merges).
+
+---
+
+## v0.23.117
+
+Broad reliability, onboarding, CLI/OpenClaw, and platform-hardening release (aggregates work from v0.23.27 onward).
+
+### Features
+- **Capture & workflows**: Capture command palette, Send-to post-v1 policies, markdown directory index output, after-capture OCR-to-clipboard task, CLI `--randomize` upload naming.
+- **Onboarding**: Wire welcome and OCR steps into the onboarding wizard; apply OCR language to default task settings.
+- **CLI / OpenClaw**: Text and pipe uploads, bootstrap uploader JSON, manifest/runtime parity, plugin bundling for agent hosts.
+
+### Fixes
+- **MCP server**: History search query parsing, blob resource hardening, task identity race, thumbnail URI handling, stale-path diagnostics.
+- **Linux**: Pipe-drain deadlocks across CLI tools, theme service, clipboard/monitor, input, screen capture, and PulseAudio; Oem102 backslash hotkey mapping; Wayland active-window routing for Sway; `.deb` recommends `wl-clipboard` and `xclip`.
+- **macOS**: Clipboard file-path whitespace, dock hide for tray startup, upload file-picker fallback, update prompts, input/cursor helper deadlocks.
+- **Uploaders & settings**: Default-instance cleanup on category change and remove; history backup toasts and failure diagnostics; settings backup retention and restore-from-zip.
+- **Media / FFmpeg**: Path escaping, cancellation propagation, concat escape tests, thumbnail grid overflow guards, probe argument quoting.
+- **Editor & history**: Sidecar save failure handling, annotation persist-after-continue, editor copy bitmap leak, history OCR index cleanup on delete.
+- **OCR & onboarding**: Language refresh errors surfaced, regional defaults, null-selection guards, multi-language persistence.
+- **Toasts & UI**: Multi-monitor toast positioning, fade resume after context-menu close, command palette keyboard selection.
+- **Scrolling capture**: Guard `CurrentCapture` clear so closing an old window does not drop an active capture from a newer window.
+
+### Build
+- Bump Avalonia to 12.0.5 and SkiaSharp to stable 3.119.4; pin SQLite bundle packages; macOS `Info.plist` template and entitlements (prep for v0.23.128 wiring).
+
+### Documentation
+- Add macOS and Linux improvement plans (XIP0078, XIP0079), RELIABILITY-PLAN, KNOWN_ISSUES macOS section, XIP0080 evdev hotkeys proposal, KFIP0009/0010/0012, and 2026 blog-draft series.
+
+---
+
+## v0.23.107
+
+### Changed
+- No user-facing commits in this range.
+
+---
+
+## v0.23.105
+
+### Features
+- After-capture OCR clipboard task.
+
+### Fixes
+- CLI/OpenClaw manifest-vs-runtime parity; history backup user-visible toasts; MCP history search URI hardening; settings backup failure events.
+- **Linux packaging**: `.deb` recommends `wl-clipboard` and `xclip`.
+
+### Build
+- macOS `Info.plist` template and hardened-runtime entitlements (not yet wired into packaging).
+
+### Documentation
+- Linux and macOS improvement plans; XIP0080; RELIABILITY-PLAN; KNOWN_ISSUES macOS updates; KFIP0010 scope review.
+
+---
+
+## v0.23.98
+
+### Features
+- CLI `--randomize` flag for upload naming (matches UI `%ra{10}` CDN-cache avoidance).
+
+### Fixes
+- **Core reliability wave**: FFmpeg path escaping and cancellation, FileDownloader chunked/early-EOF handling, uploader default-instance non-mutating reads, plugin version alignment, history/OCR index lifecycle, backup zip atomic replacement, MCP blob/URI handling, scrolling-capture lifecycle guard.
+- **Linux**: Oem102 hotkey mapping, CLI runner and theme-service pipe deadlocks, Wayland active-window fallback, grim/slurp/grimblast stderr drain.
+- **macOS**: Upload picker fallback, clipboard path whitespace, update prompt unblock, osascript cursor helper deadlock.
+- **Platform services**: Linux input/screen capture and PulseAudio helper pipe drains; indexer enumeration exception guards.
+
+### Documentation
+- 2026-05/06 blog drafts, hourly-review tracker entries, CONTRIBUTING git-wrapper rules, FFmpeg Linux guidance.
+
+---
+
+## v0.23.27
+
+### Features
+- Capture command palette, Send-to post-v1 policies, markdown directory index output.
+
+### Fixes
+- **MCP**: History search parsing, blob hardening, task identity race, thumbnail resource URI.
+- **CLI / OpenClaw**: Text upload, JSON validation diagnostics, bootstrap uploader JSON, bounded diagnostic keys.
+- **Linux / macOS**: Clipboard stderr drain; macOS dock hide for tray; indexer long-path enumeration guards.
+- **Editor / settings**: Sidecar dirty-state preservation, async settings save await, editor copy bitmap dispose, settings restore from backup zips.
+- **OCR / onboarding**: Regional language matching, selection normalization, fallback language preservation.
+- **Mobile**: File-scoped S3 config imports.
+
+### Documentation
+- XIP0057 implementation notes, 2026-05 blog drafts, XIP proposal status normalization.
+
+### Changed
+- Fedora VS Code updater script; command-palette minor release marker; Flathub v0.22.256 verification recorded.
+
+---
+
+## v0.22.239
+
+### Fixes
+- **CLI**: OpenClaw plugin JSON parsing and stdout diagnostic redaction; use core plugin SDK import.
+
+### Build
+- Attach ImageEditor during release prep.
+
+### Documentation
+- Changelog tag linking and release-prep updates.
+
+---
 ## v0.22.237
+
+### Features
+- **Capture**: Command palette for quick capture actions
+- **Core**: After-capture OCR clipboard task, markdown directory index output, and Send-to post-v1 policies
+- **CLI**: Upload `--randomize` flag (default on) appends random suffix matching UI `%ra{10}` to avoid CDN caching
+
+### Fixes
+- **CLI/OpenClaw**: Text-upload pipeline with JSON validation, diagnostics, path normalization, bootstrap uploader JSON, manifest parity, plugin bundling for agent hosts, macOS plugin discovery, and S3 keychain credentials; skip redundant named-copy when `--name` is set
+- **MCP**: History search and resources: query parsing, URI matching, thumbnail/blob paths, stale and oversized diagnostics, task identity race, error-shape alignment
+- **OCR**: Onboarding language lifecycle: regional defaults, refresh and persistence, fallback when enumeration fails, assistant history stale-file guard, index schema on history delete
+- **Command palette**: Keyboard selection wrap, blank-escape close, search whitespace normalization
+- **Editor**: Save and sidecar reliability: distinct failure reporting, dirty-state preservation, overwrite truncation, bitmap disposal, annotation persist-after-continue; ImageEditor resource path normalization and effect browser spacing
+- **FFmpeg/Media**: Path escaping, cancellation tokens, process-tree kill, CombineScreenshots guards, probe quoting, workflow override wiring; FileDownloader chunked encoding and early-EOF fix
+- **Linux**: Pipe-drain deadlocks across CLI subprocesses; Wayland/X11 capture routing, Oem102 hotkey mapping, active-window fallbacks; deb packaging recommends wl-clipboard/xclip; grim/slurp null-guard
+- **macOS**: Tray Dock icon hidden (#252), upload file picker fallback, front-window parsing, update prompts with manual action, clipboard path whitespace, onboarding folder-picker crash
+- **Uploaders**: Default-instance lifecycle, routing conflicts, auto fallback within category, drag-drop normalization, stale-default cleanup logging
+- **Settings/Backup**: Async saves, atomic zip replacement, weekly backup TOCTOU handling, restore from backups, empty-destination guards, user-visible failure toasts and diagnostics
+- **History/Indexer**: OCR index cleanup on delete; enumeration resilience for long paths and I/O errors
+- **UI**: Toast fade opacity, multi-monitor bounds, context-menu close resume
+- **Capture**: Scrolling capture ReferenceEquals guard when closing old capture window
+- **Mobile**: File-scoped S3 config and imports
+- **Misc**: IsFileLocked false for missing paths, HSB alpha hash contract, SFTP invalid key reporting, silent Windows updater, GDI cursor cleanup, build guardrails against user props override, StringCollection type converter fix, EmojiCatalog search score case-insensitivity
+
+### Build
+- **Dependencies**: Avalonia 12.0.5, SkiaSharp 3.119.4, SQLite bundle pins
+- **macOS**: Info.plist template and hardened-runtime entitlements (not yet wired into packaging)
+
+### Documentation
+- **Plans**: Linux and macOS improvement plans (XIP0077-XIP0079), reliability upgrade plan (U1-U10), KNOWN_ISSUES macOS section
+- **Proposals**: XIP, IEIP, and KFIP proposals including XIP0080 (Linux evdev hotkeys) and KFIP0009-0012
+- **Contributor**: AGENTS wrapper policy and CONTRIBUTING.md
+- **Blog**: 2026 blog draft series
+- **Guides**: FFmpeg Linux/override guidance, XIP proposal status normalization
+
+### Testing
+- **Core**: Guardrail coverage (Headless.NUnit, McpServer.Tests, FFmpeg concat escape regression tests)
+
+### Changed
+- **Release/CI**: Prerelease defaults, v0.22.256 workflow and Flathub verification docs, Fedora VS Code updater script
+- **OCR UI**: Normalize platform language tags and display names in tool UI loader
+- **ImageEditor**: Submodule updates
+
+## v0.22.239
 
 ### Fixes
 - **Core**: Resolve startup log issues
+- **Core**: Parse raw OpenClaw plugin JSON output, redact stdout diagnostics, use core OpenClaw plugin SDK import
 
 ### Build
 - **Core**: Attach ImageEditor during release prep
 
 ### Documentation
-- **Core**: Link changelog tags and omit hashes
-- **Core**: Update changelog for release prep
+- **Core**: Link changelog only for existing tags; link version headings and omit per-entry hashes; update changelog for release prep
+
+## v0.22.237
+### Fixes
+- Resolve startup log issues
+
+### Build
+- Attach ImageEditor during release prep
+
+### Documentation
+- Link changelog tags and omit hashes
+- Update changelog for release prep
 
 ## [v0.22.236](https://github.com/ShareX/XerahS/releases/tag/v0.22.236)
 

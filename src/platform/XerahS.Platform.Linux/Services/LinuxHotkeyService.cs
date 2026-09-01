@@ -59,6 +59,27 @@ public sealed class LinuxHotkeyService : IHotkeyService
     public bool IsSuspended { get; set; }
     public Task<bool> ShowInteractiveConfigurationAsync() => Task.FromResult(false);
 
+    public HotkeyDiagnostics GetDiagnostics()
+    {
+        if (_display == IntPtr.Zero)
+        {
+            return new HotkeyDiagnostics(
+                HotkeyBackendState.Unavailable,
+                "XGrabKey (X11)",
+                "Unable to open the X11 display. Global hotkeys are disabled.");
+        }
+
+        if (_globalShortcutsUnavailable)
+        {
+            return new HotkeyDiagnostics(
+                HotkeyBackendState.X11FallbackFocusOnly,
+                "XGrabKey (X11)",
+                "Wayland session without a working GlobalShortcuts portal: hotkeys only fire while an XWayland window is focused.");
+        }
+
+        return new HotkeyDiagnostics(HotkeyBackendState.Native, "XGrabKey (X11)", null);
+    }
+
     public LinuxHotkeyService(bool globalShortcutsUnavailable = false)
     {
         // When true, this is the X11 fallback on a native Wayland session that lacks a
@@ -492,6 +513,7 @@ public sealed class LinuxHotkeyService : IHotkeyService
         { Key.Oem5, "backslash" },
         { Key.Oem6, "bracketright" },
         { Key.Oem7, "apostrophe" },
+        { Key.Oem102, "backslash" },
         { Key.Apps, "Menu" },
         { Key.Divide, "KP_Divide" },
         { Key.Multiply, "KP_Multiply" },

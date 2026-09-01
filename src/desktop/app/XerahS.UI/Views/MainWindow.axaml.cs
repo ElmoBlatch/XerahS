@@ -36,6 +36,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using SkiaSharp;
 using XerahS.Bootstrap;
@@ -48,6 +49,8 @@ using ShareX.ImageEditor.Core.Annotations;
 using ShareX.ImageEditor.Presentation.ViewModels;
 using ShareX.ImageEditor.Presentation.Views;
 using XerahS.UI.Views.Dialogs;
+using XerahS.UI.Helpers;
+using XerahS.UI.Services.SettingsSearch;
 
 namespace XerahS.UI.Views
 {
@@ -60,9 +63,12 @@ namespace XerahS.UI.Views
         private readonly IDesktopTaskManager? _taskManager;
         private EditorView? _editorView = null;
         private DestinationSettingsView? _destinationSettingsView = null;
+        private ApplicationSettingsView? _applicationSettingsView = null;
         private MainViewModel? _mainViewModel;
         private bool _isOpenImageInProgress;
         private bool _onboardingShown;
+        private bool _suppressWindowActivation = true;
+        private bool _silentRunHideApplied;
 
         /// <summary>
         /// Collection of user-configured workflows for menu binding.
@@ -111,7 +117,11 @@ namespace XerahS.UI.Views
             }
 
             LoadUserWorkflows();
+            // Do not Show/Activate here. NavigateTo used to call Show() while the window
+            // was still being constructed, which fired Opened before App could attach the
+            // SilentRun hide-to-tray handler. Avalonia shows MainWindow after startup.
             NavigateTo("Editor");
+            _suppressWindowActivation = false;
         }
 
         protected override void OnClosed(EventArgs e)
@@ -164,6 +174,7 @@ namespace XerahS.UI.Views
             if (e.Property == ContentControl.ContentProperty)
             {
                 UpdateShellModalVisibility();
+                QueueNavigationFilterUpdate();
             }
         }
 
@@ -433,6 +444,20 @@ namespace XerahS.UI.Views
 
         private void OnWindowOpened(object? sender, EventArgs e)
         {
+            // First Opened only: later tray "Open Main Window" must stay visible.
+            if (SilentRunStartupPolicy.ShouldHideMainWindowToTray(
+                    SettingsManager.Settings.SilentRun, App.IsExiting, _silentRunHideApplied))
+            {
+                _silentRunHideApplied = true;
+                if (!SettingsManager.Settings.ShowTray)
+                {
+                    SettingsManager.Settings.ShowTray = true;
+                    TrayIconHelper.Instance.RefreshFromSettings();
+                }
+                SilentRunStartupPolicy.ApplyHiddenToTray(this);
+                XerahS.Common.DebugHelper.WriteLine("SilentRun startup: main window hidden to tray.");
+            }
+
             // Provide the native window handle to platform services so the Wayland GlobalShortcuts
             // portal can display a transient permissions dialog (GNOME returns response=2 without it).
             // On X11/XWayland the descriptor is "XID"; on native Wayland it is "wl_surface"
@@ -481,11 +506,12 @@ namespace XerahS.UI.Views
                 };
             }
 
-            // Pre-warm Destination Settings so the first navigation does not pay init cost.
-            Dispatcher.UIThread.Post(() => _ = PreWarmDestinationSettingsAsync(), DispatcherPriority.Background);
+            // Pre-warm settings pages so first open and settings search indexing stay off the hot path.
+            Dispatcher.UIThread.Post(() => _ = PreWarmSettingsSearchIndexAsync(), DispatcherPriority.Background);
 
             // Show onboarding wizard once on first run — guard prevents double-fire on repeated OnWindowOpened calls.
-            if (SettingsManager.Settings.IsFirstTimeRun && !_onboardingShown)
+            // Skip when SilentRun hid the window: ShowDialog would re-show the owner.
+            if (SettingsManager.Settings.IsFirstTimeRun && !_onboardingShown && !_silentRunHideApplied)
             {
                 _onboardingShown = true;
                 Dispatcher.UIThread.Post(async () =>
@@ -508,21 +534,33 @@ namespace XerahS.UI.Views
             }
         }
 
-        private async Task PreWarmDestinationSettingsAsync()
+        private async Task PreWarmSettingsSearchIndexAsync()
         {
             try
             {
-                _destinationSettingsView ??= CreateDestinationSettingsView();
+                _applicationSettingsView ??= CreateApplicationSettingsView();
+                SettingsSearchService.Instance.MergeApplicationIndex(_applicationSettingsView);
 
-                if (_destinationSettingsView.DataContext is DestinationSettingsViewModel vm)
+                _destinationSettingsView ??= CreateDestinationSettingsView();
+                if (_destinationSettingsView.DataContext is DestinationSettingsViewModel destinationVm)
                 {
-                    await vm.Initialize();
+                    await destinationVm.Initialize();
+                    var categories = destinationVm.Categories.Select(category =>
+                        (category.Name, category.Instances.Select(instance => instance.DisplayName)));
+                    SettingsSearchService.Instance.MergeDestinationIndex(_destinationSettingsView, categories);
                 }
+
+                EnrichNavigationSearchTextFromSettingsIndex();
             }
             catch (Exception ex)
             {
-                XerahS.Common.DebugHelper.WriteException(ex, "Failed to pre-warm Destination Settings");
+                XerahS.Common.DebugHelper.WriteException(ex, "Failed to pre-warm settings search index");
             }
+        }
+
+        private async Task PreWarmDestinationSettingsAsync()
+        {
+            await PreWarmSettingsSearchIndexAsync();
         }
 
         protected override void OnClosing(WindowClosingEventArgs e)

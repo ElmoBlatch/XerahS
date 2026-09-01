@@ -126,14 +126,12 @@ public partial class OverlayWindow
 
             ApplyToolbarDefaultsToAnnotation(_currentAnnotation);
 
-            // Reuse the shared editor sampling path first, then fall back to monitor-specific sources.
             if (_currentAnnotation is SmartEraserAnnotation smartEraserAnn)
             {
-                var sampledColor = ResolveSmartEraserColor(skPoint);
-                if (!string.IsNullOrWhiteSpace(sampledColor))
+                SKBitmap? sourceImage = _viewModel.EditorCore.SourceImage;
+                if (sourceImage != null)
                 {
-                    smartEraserAnn.StrokeColor = sampledColor;
-                    smartEraserAnn.FillColor = sampledColor;
+                    smartEraserAnn.ConfigureFill(sourceImage);
                 }
             }
 
@@ -245,6 +243,14 @@ public partial class OverlayWindow
         {
             spotlight.CanvasSize = new SKSize((float)Math.Max(1, Width), (float)Math.Max(1, Height));
         }
+        else if (_currentAnnotation is SmartEraserAnnotation smartEraser)
+        {
+            SKBitmap? sourceImage = _viewModel.EditorCore.SourceImage;
+            if (sourceImage != null)
+            {
+                smartEraser.ConfigureFill(sourceImage);
+            }
+        }
     }
 
     private bool TryBeginSpotlightSelectionInteraction(SKPoint point)
@@ -321,7 +327,6 @@ public partial class OverlayWindow
                 textAnnotation.TextColor = _viewModel.GetResolvedTextColor();
                 textAnnotation.IsBold = _viewModel.TextBold;
                 textAnnotation.IsItalic = _viewModel.TextItalic;
-                textAnnotation.IsUnderline = _viewModel.TextUnderline;
                 break;
             case NumberAnnotation numberAnnotation:
                 numberAnnotation.FontSize = _viewModel.FontSize;

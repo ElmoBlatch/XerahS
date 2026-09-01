@@ -25,6 +25,8 @@
 
 using Avalonia.Threading;
 using SkiaSharp;
+using XerahS.Core;
+using XerahS.Core.Capture;
 using XerahS.Platform.Abstractions;
 using XerahS.RegionCapture;
 using XerahS.RegionCapture.Models;
@@ -87,15 +89,7 @@ internal static class OverlayRegionCaptureSession
 
                 var captureService = new RegionCaptureService
                 {
-                    Options = new XerahS.RegionCapture.RegionCaptureOptions
-                    {
-                        ShowCursor = options?.ShowCursor ?? false,
-                        BackgroundImage = backgroundForMagnifier,
-                        UseTransparentOverlay = useFastOverlay,
-                        EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(options?.WorkflowId),
-                        PreferredFocusPoint = preferredFocusPoint,
-                        CursorPointProvider = ResolvePreferredFocusPoint,
-                    }
+                    Options = CreateOverlayOptions(options, backgroundForMagnifier, useFastOverlay, sessionStartUtc: null, preferredFocusPoint)
                 };
 
                 RegionSelectionResult? result;
@@ -105,13 +99,14 @@ internal static class OverlayRegionCaptureSession
                 }
                 finally
                 {
-                    RegionCaptureAnnotationOptionsStore.Persist();
+                    await RegionCaptureAnnotationOptionsStore.PersistAsync();
                 }
 
                 if (result is not null)
                 {
                     var region = result.Value.Region;
                     selection = new SKRectI((int)region.X, (int)region.Y, (int)region.Right, (int)region.Bottom);
+                    RememberLastRegion(selection);
                 }
             });
         }
@@ -141,16 +136,7 @@ internal static class OverlayRegionCaptureSession
             {
                 var captureService = new RegionCaptureService
                 {
-                    Options = new XerahS.RegionCapture.RegionCaptureOptions
-                    {
-                        ShowCursor = effectiveOptions?.ShowCursor ?? false,
-                        BackgroundImage = fullScreenBitmap,
-                        UseTransparentOverlay = useFastOverlay,
-                        EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(effectiveOptions?.WorkflowId),
-                        SessionStartUtc = sessionStartUtc,
-                        PreferredFocusPoint = preferredFocusPoint,
-                        CursorPointProvider = ResolvePreferredFocusPoint,
-                    }
+                    Options = CreateOverlayOptions(effectiveOptions, fullScreenBitmap, useFastOverlay, sessionStartUtc, preferredFocusPoint)
                 };
 
                 RegionSelectionResult? result;
@@ -160,7 +146,7 @@ internal static class OverlayRegionCaptureSession
                 }
                 finally
                 {
-                    RegionCaptureAnnotationOptionsStore.Persist();
+                    await RegionCaptureAnnotationOptionsStore.PersistAsync();
                 }
 
                 if (result is not null)
@@ -169,6 +155,7 @@ internal static class OverlayRegionCaptureSession
                     selection = new SKRectI((int)region.X, (int)region.Y, (int)region.Right, (int)region.Bottom);
                     annotationLayer = result.Value.AnnotationLayer;
                     annotationMonitorOrigin = result.Value.MonitorOrigin;
+                    RememberLastRegion(selection);
                 }
             });
         }
@@ -200,5 +187,54 @@ internal static class OverlayRegionCaptureSession
             // Cursor position is best-effort; fall back to primary/leftmost focus.
             return null;
         }
+    }
+
+    private static XerahS.RegionCapture.RegionCaptureOptions CreateOverlayOptions(
+        CaptureOptions? options,
+        SKBitmap? backgroundImage,
+        bool useFastOverlay,
+        DateTime? sessionStartUtc,
+        PixelPoint? preferredFocusPoint)
+    {
+        var regionOptions = ResolveTaskSettings(options?.WorkflowId)?.CaptureSettings?.RegionCaptureOptions;
+        IReadOnlyList<CaptureSnapSize> snapSizes = CaptureSnapSize.DefaultPresets;
+        if (regionOptions?.SnapSizes is { Count: > 0 } configuredSizes)
+        {
+            snapSizes = configuredSizes.Select(size => new CaptureSnapSize(size.Width, size.Height)).ToArray();
+        }
+
+        return new XerahS.RegionCapture.RegionCaptureOptions
+        {
+            ShowCursor = options?.ShowCursor ?? false,
+            BackgroundImage = backgroundImage,
+            UseTransparentOverlay = useFastOverlay,
+            EditorOptions = RegionCaptureAnnotationOptionsStore.GetEditorOptions(options?.WorkflowId),
+            SessionStartUtc = sessionStartUtc,
+            QuickCrop = regionOptions?.QuickCrop ?? true,
+            DetectControls = regionOptions?.DetectControls ?? true,
+            EnableWindowSnapping = regionOptions?.DetectWindows ?? true,
+            SnapSizes = snapSizes,
+            SnapDistance = XerahS.Core.RegionCaptureOptions.SnapDistance,
+            PreferredFocusPoint = preferredFocusPoint,
+            CursorPointProvider = ResolvePreferredFocusPoint,
+        };
+    }
+
+    private static TaskSettings? ResolveTaskSettings(string? workflowId)
+    {
+        if (!string.IsNullOrWhiteSpace(workflowId))
+        {
+            return SettingsManager.GetWorkflowTaskSettings(workflowId);
+        }
+
+        return SettingsManager.DefaultTaskSettings;
+    }
+
+    private static void RememberLastRegion(SKRectI selection)
+    {
+        if (selection.Width <= 0 || selection.Height <= 0)
+            return;
+
+        LastRegionStore.Set(selection.Left, selection.Top, selection.Width, selection.Height);
     }
 }

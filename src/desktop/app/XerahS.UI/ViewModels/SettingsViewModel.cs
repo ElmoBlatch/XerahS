@@ -61,6 +61,9 @@ namespace XerahS.UI.ViewModels
         private string _saveImageSubFolderPattern = string.Empty;
 
         [ObservableProperty]
+        private bool _useSaveImageSubFolderPattern = true;
+
+        [ObservableProperty]
         private bool _useCustomScreenshotsPath;
 
         [ObservableProperty]
@@ -113,6 +116,9 @@ namespace XerahS.UI.ViewModels
 
         [ObservableProperty]
         private bool _taskbarProgressEnabled;
+
+        [ObservableProperty]
+        private bool _disableToastNotification;
 
         [ObservableProperty]
         private bool _autoCheckUpdate;
@@ -263,6 +269,7 @@ namespace XerahS.UI.ViewModels
             ScreenshotsFolder = settings.CustomScreenshotsPath ??
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "ShareX");
             SaveImageSubFolderPattern = settings.SaveImageSubFolderPattern ?? "%y-%mo";
+            UseSaveImageSubFolderPattern = settings.UseSaveImageSubFolderPattern;
             UseCustomScreenshotsPath = settings.UseCustomScreenshotsPath;
             ShowTray = settings.ShowTray;
             SilentRun = settings.SilentRun;
@@ -270,6 +277,7 @@ namespace XerahS.UI.ViewModels
             ThemeMode = settings.ThemeMode;
             TrayIconProgressEnabled = settings.TrayIconProgressEnabled;
             TaskbarProgressEnabled = settings.TaskbarProgressEnabled;
+            DisableToastNotification = settings.DisableToastNotification;
             AutoCheckUpdate = settings.AutoCheckUpdate;
             UpdateChannel = settings.UpdateChannel;
             PreReleaseUpdateSource = settings.PreReleaseUpdateSource;
@@ -301,6 +309,7 @@ namespace XerahS.UI.ViewModels
             CaptureClientArea = taskSettings.CaptureSettings.CaptureClientArea;
             UseModernCapture = taskSettings.CaptureSettings.UseModernCapture;
             RefreshLinuxRegionSelectorDiagnostics();
+            RefreshLinuxClipboardDiagnostics();
             LinuxRegionSelectorPreference = LinuxRegionSelectorPreferenceSupport.NormalizeForCurrentSession(
                 taskSettings.CaptureSettings.LinuxRegionSelectorPreference);
             MacOSRegionSelectorPreference = taskSettings.CaptureSettings.MacOSRegionSelectorPreference;
@@ -379,6 +388,7 @@ namespace XerahS.UI.ViewModels
 
             settings.CustomScreenshotsPath = ScreenshotsFolder;
             settings.SaveImageSubFolderPattern = SaveImageSubFolderPattern;
+            settings.UseSaveImageSubFolderPattern = UseSaveImageSubFolderPattern;
             settings.UseCustomScreenshotsPath = UseCustomScreenshotsPath;
             settings.ShowTray = ShowTray;
             settings.SilentRun = SilentRun;
@@ -386,6 +396,7 @@ namespace XerahS.UI.ViewModels
             settings.ThemeMode = ThemeMode;
             settings.TrayIconProgressEnabled = TrayIconProgressEnabled;
             settings.TaskbarProgressEnabled = TaskbarProgressEnabled;
+            settings.DisableToastNotification = DisableToastNotification;
             settings.AutoCheckUpdate = AutoCheckUpdate;
             settings.UpdateChannel = UpdateChannel;
             settings.PreReleaseUpdateSource = PreReleaseUpdateSource;
@@ -435,7 +446,7 @@ namespace XerahS.UI.ViewModels
             _lastSavedWatchFolderSignature = currentWatchFolderSignature;
 
             SettingsManager.SaveApplicationConfig();
-            SettingsManager.SaveWorkflowsConfigAsync();
+            _ = SettingsManager.SaveWorkflowsConfigAsync();
             App.ApplyMenuBarOnlyModeFromSettings();
             Services.UpdateService.Instance.RefreshConfigurationFromSettings();
 
@@ -450,10 +461,20 @@ namespace XerahS.UI.ViewModels
         private async Task ManualUpdate()
         {
             IsManualUpdateInProgress = true;
-            ManualUpdateStatusText = "Checking for updates...";
 
             try
             {
+                if (XerahS.UI.Services.UpdateService.IsRuntimeManagedByFlatpak)
+                {
+                    // The Flatpak runtime owns upgrade delivery; the in-app
+                    // updater is intentionally a no-op here so it does not
+                    // surface .deb / .rpm assets that the sandbox cannot
+                    // install.
+                    ManualUpdateStatusText = XerahS.UI.Services.UpdateService.RuntimeManagedUpdateMessage;
+                    return;
+                }
+
+                ManualUpdateStatusText = "Checking for updates...";
                 Services.UpdateService.Instance.Initialize();
                 UpdateStatus status = await Services.UpdateService.Instance.CheckForUpdatesAsync();
 
@@ -495,9 +516,11 @@ namespace XerahS.UI.ViewModels
         {
             ScreenshotsFolder = PathsManager.ScreenshotsFolder;
             SaveImageSubFolderPattern = "%y-%mo";
+            UseSaveImageSubFolderPattern = true;
             UseCustomScreenshotsPath = false;
             ShowTray = true;
             SilentRun = false;
+            DisableToastNotification = false;
             SelectedTheme = 0;
             LinuxRegionSelectorPreference = LinuxInteractiveRegionSelectorPreference.Automatic;
             MacOSRegionSelectorPreference = MacOSInteractiveRegionSelectorPreference.Automatic;

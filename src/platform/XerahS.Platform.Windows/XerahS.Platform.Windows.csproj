@@ -23,13 +23,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\desktop\core\XerahS.Common\XerahS.Common.csproj" />
     <ProjectReference Include="..\XerahS.Platform.Abstractions\XerahS.Platform.Abstractions.csproj" />
-    <ProjectReference Include="..\..\desktop\core\XerahS.Core\XerahS.Core.csproj" />
     <ProjectReference Include="..\..\desktop\core\XerahS.Services.Abstractions\XerahS.Services.Abstractions.csproj" />
     <ProjectReference Include="..\..\desktop\app\XerahS.RegionCapture\XerahS.RegionCapture.csproj" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
     <PackageReference Include="SkiaSharp" />
+    <PackageReference Include="Vortice.Direct2D1" />
     <PackageReference Include="Vortice.Direct3D11" />
     <PackageReference Include="Vortice.DXGI" />
     <PackageReference Include="Microsoft.Windows.CsWinRT" />

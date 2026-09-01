@@ -76,7 +76,6 @@ namespace XerahS.Platform.MacOS
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "pbpaste",
-                    Arguments = string.Empty,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -89,9 +88,16 @@ namespace XerahS.Platform.MacOS
                     return null;
                 }
 
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit();
-                return output;
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                if (!process.WaitForExit(OsaScriptTimeoutMs))
+                {
+                    TryKill(process);
+                    return null;
+                }
+
+                _ = errorTask.GetAwaiter().GetResult();
+                return outputTask.GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -107,7 +113,6 @@ namespace XerahS.Platform.MacOS
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "pbcopy",
-                    Arguments = string.Empty,
                     RedirectStandardInput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -120,9 +125,13 @@ namespace XerahS.Platform.MacOS
                     return;
                 }
 
+                // Begin reading stderr asynchronously to prevent deadlock
+                // if pbcopy writes diagnostics while we pipe stdin.
+                var errorTask = process.StandardError.ReadToEndAsync();
                 process.StandardInput.Write(text ?? string.Empty);
                 process.StandardInput.Close();
                 process.WaitForExit();
+                _ = errorTask.GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -376,14 +385,17 @@ namespace XerahS.Platform.MacOS
                 string fullPath;
                 try
                 {
-                    fullPath = Path.GetFullPath(file.Trim());
+                    fullPath = Path.GetFullPath(file);
                 }
                 catch
                 {
                     continue;
                 }
 
-                var escaped = fullPath.Replace("\\", "\\\\").Replace("\"", "\\\"");
+                // AppleScript POSIX-file specifiers must use forward slashes regardless of host
+                // platform. Normalise separators first, then escape embedded quotes.
+                var posixPath = fullPath.Replace(Path.DirectorySeparatorChar, '/');
+                var escaped = posixPath.Replace("\"", "\\\"");
                 yield return $"POSIX file \\\"{escaped}\\\"";
             }
         }

@@ -34,10 +34,29 @@ public sealed record WindowInfo(
     PixelRect Bounds,
     PixelRect VisualBounds,
     bool IsMinimized,
-    int ZOrder)
+    int ZOrder,
+    bool IsControl = false,
+    bool IsClientArea = false)
 {
     /// <summary>
     /// The visual bounds (excluding shadow/DWM frame) for accurate snapping.
     /// </summary>
     public PixelRect SnapBounds => VisualBounds.IsEmpty ? Bounds : VisualBounds;
+
+    /// <summary>
+    /// Title shown in the hover overlay. Child controls often have empty titles.
+    /// </summary>
+    public string DisplayTitle
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Title))
+                return Title;
+
+            if (IsClientArea)
+                return "Client area";
+
+            return string.IsNullOrWhiteSpace(ClassName) ? "Control" : ClassName;
+        }
+    }
 }

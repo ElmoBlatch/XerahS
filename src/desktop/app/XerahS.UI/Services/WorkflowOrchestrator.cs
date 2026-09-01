@@ -66,7 +66,7 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
 
         ConfigureWorkerTaskCallbacks();
         InitializeHotkeys();
-        _assistantOverlayCoordinator ??= new AssistantOverlayCoordinator();
+        _assistantOverlayCoordinator ??= new AssistantOverlayCoordinator(_taskManager);
         _assistantOverlayCoordinator.Start();
         if (_workflowManager != null)
         {
@@ -410,6 +410,13 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
         bool isCaptureJob = category == EnumExtensions.WorkflowType_Category_ScreenCapture ||
                             category == EnumExtensions.WorkflowType_Category_ScreenRecord;
 
+        // Hotkey/palette-triggered captures deliberately do NOT hide the main window.
+        // The caller pressed a hotkey because they wanted to grab what was on screen,
+        // which frequently includes the XerahS window itself. Navbar/toolbar clicks
+        // still hide via TaskHelpers.ExecuteJob(hideMainWindow: true); tray left/double/
+        // middle click still hides via TrayIconHelper -> ExecuteWorkflow(hideMainWindow: true).
+        // SilentRun callers already have the window hidden, and HideMainWindowAsync
+        // no-ops on a hidden window.
         if (!isCaptureJob && _desktop?.MainWindow is MainWindow immediateMainWindow)
         {
             bool isWindowVisible = immediateMainWindow.IsVisible &&
@@ -510,7 +517,7 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
         }
 
         var taskSettings = task.Info?.TaskSettings ?? new TaskSettings();
-        if (taskSettings.GeneralSettings?.ShowToastNotificationAfterTaskCompleted != true)
+        if (!ShouldShowCompletionNotification(task.Info))
         {
             return;
         }
@@ -600,6 +607,10 @@ public sealed class WorkflowOrchestrator : IWorkflowOrchestrator
             }
         });
     }
+
+    internal static bool ShouldShowCompletionNotification(TaskInfo? info) =>
+        info?.SuppressCompletionNotification != true &&
+        info?.TaskSettings?.GeneralSettings?.ShowToastNotificationAfterTaskCompleted == true;
 
     private void OnWorkflowTaskStarted(object? sender, Core.Tasks.WorkerTask task)
     {

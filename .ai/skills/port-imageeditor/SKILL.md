@@ -10,7 +10,7 @@ metadata:
     - submodule
     - avalonia
     - skia
-  last_updated: 2026-05-26
+  last_updated: 2026-08-18
 ---
 
 # Port ImageEditor: Local ShareX -> XerahS
@@ -20,22 +20,89 @@ state from the local ShareX repo.
 
 ## Source of truth
 
-Do not clone ShareX again. The local ShareX checkout is the upstream reference:
+On the known workstations, do not clone ShareX again. The local ShareX checkout is the
+upstream reference.
+
+ShareX and XerahS are **not** always siblings. Resolve `$ShareXRepo` and `$XerahSRoot`
+independently. The editor cwd is often `C:\WINDOWS\system32` or another unrelated folder —
+never run `git` there.
+
+### Session paths (resolve first)
+
+User-specified paths win. Then probe, in order, until `git rev-parse --is-inside-work-tree`
+succeeds.
+
+`$ShareXRepo` (the ShareX git root, the directory that contains `ShareX.ImageEditor/`):
+
+1. Path the user named (file or folder; if they named `...\ShareX Team\ShareX`, use that)
+2. `C:\Users\Public\source\repos\ShareX Team\ShareX`
+3. `C:\Users\liveu\source\repos\ShareX Team\ShareX`
+4. `/Users/mike/Projects/ShareX Team/ShareX`
+
+`$XerahSRoot` (the XerahS git root, the directory that contains the `ShareX.ImageEditor`
+submodule):
+
+1. Path the user named
+2. `git rev-parse --show-toplevel` from any path under a XerahS checkout
+3. `C:\Users\Public\source\repos\KovaForge\XerahS` (KovaForge workstation)
+4. `C:\Users\Public\source\repos\ShareX Team\XerahS` (ShareX Team workstation)
+5. `C:\Users\liveu\source\repos\ShareX Team\XerahS`
+6. `/Users/mike/Projects/ShareX Team/XerahS`
+
+Both Public checkouts are first-class. Prefer the one the user named, otherwise the
+one that exists and is a git work tree. Do not assume XerahS is a sibling of ShareX.
+
+### Cloud/CI fallback (no local ShareX checkout)
+
+When the skill runs on a host without any of the ShareX layouts above, the "do not clone"
+rule does not apply. Instead:
+
+1. Clone upstream once, blobless for speed:
+   `git clone --filter=blob:none https://github.com/ShareX/ShareX.git /tmp/ShareX`
+2. Use `/tmp/ShareX` as `$ShareXRepo`.
+3. Use the current XerahS working tree as `$XerahSRoot`, and run
+   `git submodule update --init ShareX.ImageEditor` first if the submodule directory is
+   empty.
+4. Create a base worktree for divergence triage (see step 2e-triage):
+   `git -C "$ShareXRepo" worktree add <sharex-base> <last_synced_sharex_hash>`
+   Use `/tmp/sharex-base` on Linux/macOS, or a sibling of `$ShareXRepo` such as
+   `...\ShareX Team\sharex-base` on Windows (`$env:TEMP` is fine if the disk is local).
+
+Linux hosts build the ImageEditor project, the desktop solution, and the test suite fine
+(`EnableWindowsTargeting` is already configured), so all verification gates below apply
+unchanged.
+
+### Path map
 
 | Role | Path |
 |------|------|
-| Upstream ShareX repo | `C:\Users\liveu\source\repos\ShareX Team\ShareX` |
-| Upstream source tree | `C:\Users\liveu\source\repos\ShareX Team\ShareX\ShareX.ImageEditor` |
-| XerahS root | `C:\Users\liveu\source\repos\ShareX Team\XerahS` |
-| XerahS ImageEditor repo | `C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor` |
-| XerahS ImageEditor code root | `C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor\src\ShareX.ImageEditor` |
+| Upstream ShareX repo | `$ShareXRepo` |
+| Upstream source tree | `$ShareXRepo/ShareX.ImageEditor` |
+| XerahS root | `$XerahSRoot` |
+| XerahS ImageEditor repo | `$XerahSRoot/ShareX.ImageEditor` |
+| XerahS ImageEditor code root | `$XerahSRoot/ShareX.ImageEditor/src/ShareX.ImageEditor` |
 
-Hardcoded local paths are intentional here. They make this workflow faster and more reliable.
+All command examples use forward slashes. They work on Windows, macOS, and Linux for
+`git -C`, `cd`, and `dotnet build`.
+
+Set both roots once per session:
+
+```powershell
+# Windows PowerShell — example from a Public + KovaForge layout
+$ShareXRepo = 'C:\Users\Public\source\repos\ShareX Team\ShareX'
+$XerahSRoot = 'C:\Users\Public\source\repos\KovaForge\XerahS'
+```
+
+```bash
+# macOS / Linux shell — sibling layout
+ShareXRepo="/Users/mike/Projects/ShareX Team/ShareX"
+XerahSRoot="/Users/mike/Projects/ShareX Team/XerahS"
+```
 
 ## Core rules
 
 1. The newest relevant upstream commit must be resolved from the local ShareX repo's git history, not guessed.
-2. Diff against the mapped XerahS code root. The upstream source lives at `ShareX\ShareX.ImageEditor\...`; the target code lives at `XerahS\ShareX.ImageEditor\src\ShareX.ImageEditor\...`.
+2. Diff against the mapped XerahS code root. The upstream source lives at `ShareX/ShareX.ImageEditor/...`; the target code lives at `XerahS/ShareX.ImageEditor/src/ShareX.ImageEditor/...`.
 3. Scan every relevant upstream commit from the previous sync point through the newest relevant commit, not just the tip commit.
 4. Build a holistic understanding of the bugs fixed and features added across that whole commit window before changing XerahS.
 5. Before implementing anything, publish a concise implementation manifest that lists every bug fix and enhancement identified from the new ShareX commits.
@@ -50,6 +117,8 @@ Hardcoded local paths are intentional here. They make this workflow faster and m
 14. Build before claiming completion.
 15. Commit each completed bug fix and enhancement separately in the `ShareX.ImageEditor` submodule. Do not bundle unrelated manifest items into one port commit.
 16. If verification passes and the user did not ask to pause, push the submodule commits and then commit and push the XerahS root pointer update.
+17. Do not add a `ProjectReference` to `ShareX.Avalonia`, `ShareX.Avalonia.Tools`, or `ShareX.Tools`. XerahS ImageEditor is a standalone Avalonia/Skia library. Rewrite `ShareX.AvaloniaUI.*` usings and `avares://ShareX.Avalonia/...` URIs back to ImageEditor types (`Presentation.Theming`, `Presentation.Rendering`, `Hosting`).
+18. Do not rename XerahS `Hosting/` / `AvaloniaIntegration` to upstream `Integration/` / `ImageEditorIntegration`. Port new host APIs into `Hosting/AvaloniaIntegration.cs`.
 
 ## Step 0 - Resolve the upstream commit range
 
@@ -59,9 +128,9 @@ Before resolving the ShareX range, make sure the XerahS root branch and the
 `ShareX.ImageEditor` submodule are in a predictable state.
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\XerahS" status --short --branch
-git -C "C:\Users\liveu\source\repos\ShareX Team\XerahS" submodule status
-git -C "C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor" status --short --branch
+git -C "$XerahSRoot" status --short --branch
+git -C "$XerahSRoot" submodule status
+git -C "$XerahSRoot/ShareX.ImageEditor" status --short --branch
 ```
 
 If the root branch is behind and there are no conflicting local changes, prefer a
@@ -69,7 +138,7 @@ fast-forward pull that does not recurse into submodules:
 
 ```powershell
 $env:GIT_TERMINAL_PROMPT = '0'
-git -C "C:\Users\liveu\source\repos\ShareX Team\XerahS" pull --ff-only --no-recurse-submodules
+git -C "$XerahSRoot" pull --ff-only --no-recurse-submodules
 ```
 
 This avoids a root pull hanging on nested submodule fetches. If a previous pull or
@@ -82,7 +151,7 @@ porting. If a local submodule commit is a cherry-pick duplicate, let `git pull
 
 ```powershell
 $env:GIT_TERMINAL_PROMPT = '0'
-git -C "C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor" pull --rebase
+git -C "$XerahSRoot/ShareX.ImageEditor" pull --rebase
 ```
 
 Do not stage the root submodule pointer update that results from this housekeeping
@@ -91,11 +160,11 @@ until after the port build gates pass.
 ### 0a - Confirm the local ShareX checkout is current
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" status --short
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" branch --show-current
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" rev-parse HEAD
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" fetch --prune
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" status --short --branch
+git -C "$ShareXRepo" status --short
+git -C "$ShareXRepo" branch --show-current
+git -C "$ShareXRepo" rev-parse HEAD
+git -C "$ShareXRepo" fetch --prune
+git -C "$ShareXRepo" status --short --branch
 ```
 
 Use the checked-out branch as the default upstream branch unless the user requests a different ref.
@@ -103,7 +172,7 @@ Use the checked-out branch as the default upstream branch unless the user reques
 If the local ShareX checkout is behind its upstream tracking branch, pull it before resolving the ImageEditor range:
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" pull --ff-only
+git -C "$ShareXRepo" pull --ff-only
 ```
 
 If ShareX has local uncommitted changes, do not overwrite them. Prefer:
@@ -115,7 +184,7 @@ After pulling, record the updated ShareX `HEAD` and use that local source for th
 ### 0b - Find the latest ShareX commit that touches `ShareX.ImageEditor`
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" `
+git -C "$ShareXRepo" `
   log -1 --format="%H %cs %s" -- ShareX.ImageEditor
 ```
 
@@ -123,7 +192,7 @@ This is the latest relevant upstream commit. Record it.
 
 ### 0c - Find the last recorded sync point in XerahS
 
-Read `C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor\PORT_STATUS.md`.
+Read `$XerahSRoot/ShareX.ImageEditor/PORT_STATUS.md`.
 
 Expected fields:
 - `ShareX.ImageEditor commit: <hash>`
@@ -134,7 +203,7 @@ If the file is missing or stale, derive the baseline from repo history and note 
 ### 0d - List pending upstream commits
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" `
+git -C "$ShareXRepo" `
   log --reverse --oneline <last_synced_sharex_hash>..HEAD -- ShareX.ImageEditor
 ```
 
@@ -152,35 +221,37 @@ The ShareX tree and XerahS submodule do not have the same repository layout.
 
 | Upstream path | Target path |
 |---------------|-------------|
-| `ShareX.ImageEditor\Assets\...` | `ShareX.ImageEditor\src\ShareX.ImageEditor\Assets\...` |
-| `ShareX.ImageEditor\Core\...` | `ShareX.ImageEditor\src\ShareX.ImageEditor\Core\...` |
-| `ShareX.ImageEditor\Hosting\...` | `ShareX.ImageEditor\src\ShareX.ImageEditor\Hosting\...` |
-| `ShareX.ImageEditor\Presentation\...` | `ShareX.ImageEditor\src\ShareX.ImageEditor\Presentation\...` |
-| `ShareX.ImageEditor\ShareX.ImageEditor.csproj` | `ShareX.ImageEditor\src\ShareX.ImageEditor\ShareX.ImageEditor.csproj` |
+| `ShareX.ImageEditor/Assets/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Assets/...` |
+| `ShareX.ImageEditor/Core/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Core/...` |
+| `ShareX.ImageEditor/Hosting/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Hosting/...` |
+| `ShareX.ImageEditor/Integration/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Hosting/...` (keep XerahS folder name; `ImageEditorIntegration.cs` maps to `AvaloniaIntegration.cs`) |
+| `ShareX.ImageEditor/Localization/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Localization/...` |
+| `ShareX.ImageEditor/Presentation/...` | `ShareX.ImageEditor/src/ShareX.ImageEditor/Presentation/...` |
+| `ShareX.ImageEditor/ShareX.ImageEditor.csproj` | `ShareX.ImageEditor/src/ShareX.ImageEditor/ShareX.ImageEditor.csproj` |
 
 Do not diff the upstream folder against the submodule repo root. Always diff it against
-`src\ShareX.ImageEditor`.
+`src/ShareX.ImageEditor`.
 
 ## Step 2 - Inspect the exact upstream delta
 
 ### 2a - List files changed since the last sync
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" `
+git -C "$ShareXRepo" `
   diff --name-only <last_synced_sharex_hash>..HEAD -- ShareX.ImageEditor
 ```
 
 ### 2b - Review each pending commit with stats
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" `
+git -C "$ShareXRepo" `
   show --stat --summary --oneline <sharex_commit>
 ```
 
 Also inspect the actual patch for behavior-critical commits:
 
 ```powershell
-git -C "C:\Users\liveu\source\repos\ShareX Team\ShareX" `
+git -C "$ShareXRepo" `
   show <sharex_commit> -- ShareX.ImageEditor
 ```
 
@@ -239,6 +310,15 @@ When multiple manifest items share prerequisite scaffolding, such as a new enum,
 
 Do not create one large "sync latest ShareX changes" submodule commit unless the pending range has exactly one cohesive manifest item.
 
+Grouping is acceptable when the range has 30+ ImageEditor commits, 50+ changed files, or
+when `Localization/` plus central files (`MainViewModel.cs`, `EditorCore.cs`,
+`EditorView.axaml`, `AnnotationToolbar.axaml`) are touched by many items at once. Commit
+each cleanly file-scoped feature (localization catalog, new partial-class features,
+`EditorBuiltInToolbars`, asset syncs) separately, and land the interleaved central files
+in one final `[Port]` commit that lists the covered items in its body. Note in
+`PORT_STATUS.md` that intermediate commits only build as a batch. Prefer the manifest to
+still list every item individually even when commits are grouped.
+
 ### 2d - Read code to remove ambiguity
 
 If the commit message or patch alone is not enough, read the upstream implementation files and the current XerahS counterparts before editing.
@@ -249,14 +329,63 @@ Typical files to inspect:
 - rendering and visual factory code
 - annotation model classes
 - views and control markup
-- the target `.csproj` for new files or assets
+- `Localization/` and `Strings.*` call sites
+- `Hosting/AvaloniaIntegration.cs` vs upstream `Integration/ImageEditorIntegration.cs`
+- the target `.csproj` for new files, assets, or resx generator entries
 
 ### 2e - Compare mapped files, not raw repo roots
 
-For each changed upstream file `ShareX.ImageEditor\<relative_path>` compare it to:
-`C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor\src\ShareX.ImageEditor\<relative_path>`.
+For each changed upstream file `ShareX.ImageEditor/<relative_path>` compare it to:
+`$XerahSRoot/ShareX.ImageEditor/src/ShareX.ImageEditor/<relative_path>`.
 
 If the target file does not exist, it is a net-new addition and therefore high risk.
+`Integration/*` that already exists under XerahS `Hosting/` is a rename, not NEW.
+
+### 2e-triage - Automate divergence triage for large ranges
+
+For ranges with dozens of changed files, do not eyeball each file. Check out the last
+synced upstream commit into a worktree:
+
+```powershell
+git -C "$ShareXRepo" worktree add <sharex-base> <last_sync>
+```
+
+Use `/tmp/sharex-base` on Linux/macOS, or a sibling of `$ShareXRepo` on Windows. Remove
+the worktree when the session finishes.
+
+Classify every upstream-changed file:
+
+- `NEW`: absent from the XerahS code root — sync it in as a new file, except
+  `Integration/*` (map to `Hosting/`) and files that exist only because ShareX extracted
+  them into `ShareX.Avalonia`.
+- `SAFE_SYNC`: the XerahS file equals the upstream *base* version after normalizing the
+  license-header region, BOM, CRLF-vs-LF, and trailing whitespace — a raw sync from
+  upstream HEAD is safe because XerahS never diverged in content.
+- `AVALONIA_NS`: the upstream `base -> head` delta is only a `using` move from
+  `ShareX.ImageEditor.Presentation.Theming` or `Hosting` to `ShareX.AvaloniaUI.*`.
+  Keep XerahS. Do not raw-sync. The 2026-08-18 range marked ~200 ImageEffects files
+  DIVERGED for this two-line change.
+- `DIVERGED`: real content differences — these carry XerahS adaptations and require a
+  manual merge.
+
+For each `DIVERGED` file, produce two normalized diffs: `base -> xerahs` (the XerahS
+adaptation to preserve) and `base -> head` (the upstream change to port). Files whose
+`base -> xerahs` delta is only blank lines or an encoding artifact can be treated as
+`SAFE_SYNC`. The 2026-07-11 port turned a 149-file range into 19 real merges; the
+2026-08-18 port was 380 files, mostly `AVALONIA_NS` plus a new `Localization/` tree.
+
+### 2e-headers - Header, BOM, and EOL policy during syncs
+
+Upstream ShareX files carry a UTF-8 BOM, CRLF line endings, and the ShareX license
+header. The XerahS submodule stores UTF-8 without BOM, LF endings, and a mix of the
+`ShareX.ImageEditor - The UI-agnostic Editor library for ShareX` header and headerless
+files. When syncing:
+
+- Strip the BOM and convert CRLF to LF.
+- For existing files, preserve the target file's current header state byte-for-byte
+  (including "no header") and replace only the body below it.
+- For new `.cs` files, add the submodule-standard `ShareX.ImageEditor` header wording.
+- Never let a raw copy replace the XerahS header with the upstream ShareX wording.
 
 ### 2f - Compare behavior, not just text
 
@@ -276,7 +405,7 @@ If both implementations solve different parts of the problem, create a manual me
 ### 3a - When a raw file sync is acceptable
 
 Raw file sync is an exception, not the normal path. You may replace the target file with the upstream version only when all of these are true:
-- The file lives under `Core/`, `Presentation/`, `Hosting/`, or `Assets/` and maps cleanly into `src/ShareX.ImageEditor`
+- The file lives under `Core/`, `Presentation/`, `Hosting/`, `Localization/`, or `Assets/` and maps cleanly into `src/ShareX.ImageEditor`
 - The target file was compared and does not contain a relevant XerahS fix, alternate implementation, host integration, persistence hook, test-supported behavior, or Avalonia-specific adaptation that would be lost
 - The upstream change is exactly what XerahS needs and there is no repo-layout-only difference inside the file
 - The manifest item explicitly marks the decision as `raw sync` with a short rationale
@@ -308,19 +437,88 @@ and verify these known XerahS adaptations before building:
 - `Annotation.cs`: keep `JsonPolymorphic(TypeDiscriminatorPropertyName = "$type")`,
   `JsonIgnore` on computed/runtime state, and XerahS `StepTailStyle`; add any new
   upstream `JsonDerivedType` entries such as cursor annotations.
+- `BaseEffectAnnotation.cs` / `ImageAnnotation.cs`: keep `[JsonIgnore]` on the runtime
+  bitmap properties (`EffectBitmap`, `ImageBitmap`) and the
+  `System.Text.Json.Serialization` using.
 - `EditorCore.cs`: keep `GetAnnotationsSnapshotForPersistence()`,
   `RestoreAnnotations(...)`, and number-counter resync after restore/renumbering.
 - `MainViewModel.cs`: keep `ApplicationName` and `EditorTitle` because XerahS host
-  windows bind to that title contract.
+  windows bind to that title contract. `BuildWindowTitle` must use `EditorTitle`,
+  not `Strings.MainViewModel_WindowTitle` (that string says "ShareX").
+- `MainViewModel.ImageState.cs`: keep `CreateSourceImageCopyForPersistence()` and
+  `GetAnnotationSnapshotForPersistence()`.
+- `EditorView.CoreBridge.cs`: keep `GetAnnotationSnapshot()` and
+  `RestoreAnnotations(...)` (with number-counter and history-state resync).
 - `AvaloniaIntegration.cs`: preserve XerahS task-mode behavior, especially
   `ShowFileMenu = !taskMode` and start-screen suppression, while adding new
   upstream event wiring.
 - `EditorIcons.cs`: preserve XerahS-only icon constants such as tail-style icons
-  when upstream icon syncs replace the file.
+  (`TailStyleTriangle`, `TailStyleArrow`) when upstream icon syncs replace the file.
+- `NumberAnnotation.cs` / `StepControl.cs`: XerahS has the tail-style system
+  (`StepTailStyle` Triangle/Arrow, `TryGetArrowTailOutline`,
+  `TryGetCircleSegmentExitPoint`, arrow tail rendering). Merge upstream step
+  features (StepType, IsBold, TailEnabled, tail geometry changes) into that system
+  instead of replacing it; upstream deletes `TryGetCircleSegmentExitPoint`, but the
+  XerahS arrow tail still needs it.
+- Theming file names: keep XerahS `ImageEditorStyles.axaml` / `ImageEditorTheme.axaml`.
+  Upstream has used `AppStyles`/`AppTheme` and later `EditorStyles` / Avalonia
+  `ShareXTheme`. Rewrite those URIs back to the XerahS names. Root `XerahS.UI`
+  (MainWindow resources), `XerahS.RegionCapture`, and `EditorView.axaml` StyleInclude
+  all bind to the XerahS URIs. `XerahS.UI` `ThemeService` already calls
+  `ThemeManager.SetTheme`; do not delete the standalone editor theme panel unless
+  the user asks.
+- `EditorView.axaml`: keep the XerahS
+  `<StyleInclude Source="avares://ShareX.ImageEditor/Presentation/Theming/ImageEditorStyles.axaml"/>`
+  block. Upstream applies styles app-wide from `AvaloniaIntegration.Initialize()`,
+  which does not cover XerahS embedded hosting (MainWindow editor tab, RegionCapture
+  overlay).
+- `EffectBrowserPanel.axaml`: keep the XerahS-only StyleInclude added by submodule
+  commit `72ff989` (tile spacing in standalone hosts).
 - Root integration: when `IAnnotationToolbarAdapter` gains members, update
-  `src\desktop\app\XerahS.RegionCapture\ViewModels\RegionCaptureAnnotationViewModel.cs`
+  `src/desktop/app/XerahS.RegionCapture/ViewModels/RegionCaptureAnnotationViewModel.cs`
   in the same session. RegionCapture is not in the submodule, but the full XerahS
-  build depends on that adapter matching the submodule interface.
+  build depends on that adapter matching the submodule interface. Note:
+  `XerahS.RegionCapture` declares its own `BorderStyle` enum in the parent
+  namespace, which wins simple-name lookup over a `using BorderStyle = ...` alias;
+  use a distinctly named alias such as `AnnotationBorderStyle`.
+- Root integration: when `MainViewModel` event signatures change (for example the
+  2026-07 move to `Func<Task>` `CopyRequested` and `Func<Task<string?>>`
+  `SaveRequested`/`SaveAsRequested`), update
+  `src/desktop/app/XerahS.UI/Services/MainViewModelHelper.cs` wiring in the same
+  session, returning the saved path so editor notifications can display it.
+- Root sweep for removed members: when upstream removes API (for example
+  `TextUnderline` / `IsUnderline` in the 2026-07 range), grep `src/` and `tests/`
+  for the removed names; `OverlayWindow.Canvas.cs` and
+  `tests/XerahS.Tests/RegionCapture/*` are common consumers.
+- Package additions: when the upstream csproj gains `PackageReference` items, add
+  the versions to the **submodule's own** `ShareX.ImageEditor/Directory.Packages.props`
+  (nearest `Directory.Packages.props` wins for CPM), not the XerahS root props. The
+  XerahS root props intentionally disable central management for the submodule path.
+  Do not drop `Microsoft.ML.OnnxRuntime.DirectML` / `Vortice.DXGI` while XerahS still
+  ships background-remover in the submodule.
+- Localization: copy `Localization/` from ShareX **HEAD** (`Strings.resx`,
+  `Strings.Designer.cs`, satellite `.resx`, `EffectBrowserLocalization.cs`). Wire
+  `{x:Static res:Strings.*}` and `Strings.*` call sites. Do not replay the
+  add-then-delete `EmojiCatalog_*` experiment. Do not import ShareX
+  `ValidateTranslations.ps1`.
+- `AnnotationToolbar.ShowToolOptions`: XerahS `IAnnotationToolbarAdapter` already
+  has `ShowToolOptions` meaning "current tool has option widgets." Name the host
+  chrome override `ShowToolOptionsPanel` (or bind the control property only with
+  `ElementName`).
+- `EditorView.UseBuiltInToolbars`: default **true**. XerahS hosts do `new EditorView()`
+  and `EditorWindow` without setting the flag. Workspace embeds can set it false.
+- Tool windows extracted upstream (combiner, hash, QR, video, background remover,
+  comparer, icon converter, screen color picker): keep them in ImageEditor unless
+  XerahS.UI already owns that tool **and** the standalone `ShareX.ImageEditor.sln`
+  app no longer needs the `AvaloniaIntegration.Show*` entry point. Combiner already
+  lives in `XerahS.UI` — do not add it back to the submodule.
+- RegionCapture: XerahS is N overlay windows + `RegionCaptureAnnotationViewModel` +
+  a local `EditorCore`, not ShareX's embedded `EditorView`. Port annotation/core
+  behavior (for example `SmartEraserAnnotation.ConfigureFill`) into
+  `OverlayWindow.Canvas.cs` in the same session. Do not port `RegionCaptureWindow`.
+- Win32-only helpers (`DllImport("user32.dll")` cursor-screen math, GDI magnifier):
+  re-implement with Avalonia `TopLevel.Screens` / a cross-platform fallback. Do not
+  copy the P/Invoke.
 
 PowerShell versions in this repo may not support `Set-Content -Encoding
 utf8NoBOM`. For mechanical header normalization during mapped syncs, use
@@ -344,6 +542,10 @@ Record custom implementations in `PORT_STATUS.md` with the source ShareX commit,
 
 Keep these unless the user explicitly asks to change them:
 - `src/ShareX.ImageEditor` repository layout
+- `Hosting/` + `AvaloniaIntegration` (not `Integration/` + `ImageEditorIntegration`)
+- Lucide, cursor `.cur` files, `ThemeManager`, `CursorAssetLoader`, and
+  `BitmapConversionHelpers` inside the submodule
+- Tool windows still hosted by `AvaloniaIntegration.Show*`
 - XerahS-specific solution or project structure
 - XerahS multi-targeting or packaging differences
 - Any host integration already verified in XerahS
@@ -355,14 +557,16 @@ For each new upstream file:
 2. Add the file under `src/ShareX.ImageEditor`.
 3. Update the target `.csproj` only if the new file requires an explicit item entry.
 4. Search for references to the new type or view and port the wiring in the same session.
+5. For `Localization/Strings.resx`, add the `PublicResXFileCodeGenerator` / `Strings.Designer.cs`
+   items to the submodule csproj (see current ShareX ImageEditor csproj).
 
 ## Step 4 - Verification gates
 
 ### 4a - Targeted ImageEditor build
 
 ```powershell
-cd "C:\Users\liveu\source\repos\ShareX Team\XerahS"
-dotnet build "ShareX.ImageEditor\src\ShareX.ImageEditor\ShareX.ImageEditor.csproj" -m:1
+cd "$XerahSRoot"
+dotnet build "ShareX.ImageEditor/src/ShareX.ImageEditor/ShareX.ImageEditor.csproj" -m:1
 ```
 
 If it stalls, stop it before 5 minutes and clear the lock before retrying.
@@ -370,16 +574,38 @@ If it stalls, stop it before 5 minutes and clear the lock before retrying.
 ### 4b - Full solution build
 
 ```powershell
-cd "C:\Users\liveu\source\repos\ShareX Team\XerahS"
-dotnet build "src\desktop\XerahS.sln" -m:1
+cd "$XerahSRoot"
+dotnet build "src/desktop/XerahS.sln" -m:1
 ```
 
 This must finish with 0 errors before any push.
 
+### 4c - Standalone submodule solution and tests
+
+The submodule ships its own solution with a standalone app project that consumes
+`AvaloniaIntegration`; API changes that pass the XerahS build can still break it:
+
+```powershell
+cd "$XerahSRoot/ShareX.ImageEditor"
+dotnet build "ShareX.ImageEditor.sln" -m:1
+```
+
+Also run the XerahS test suite; RegionCapture adapter and editor behavior tests live
+there:
+
+```powershell
+cd "$XerahSRoot"
+dotnet test "tests/XerahS.Tests/XerahS.Tests.csproj" -m:1
+```
+
+On Windows, Linux/macOS tests that start `/bin/sh` or assert POSIX/`file:///` path
+shapes can fail without any ImageEditor change. Do not block the port on those.
+Block only on ImageEditor, RegionCapture adapter, or editor-behavior failures.
+
 ## Step 5 - Update tracking
 
 After the catch-up:
-1. Update `C:\Users\liveu\source\repos\ShareX Team\XerahS\ShareX.ImageEditor\PORT_STATUS.md`
+1. Update `$XerahSRoot/ShareX.ImageEditor/PORT_STATUS.md`
 2. Record:
    - latest upstream ShareX commit used
    - previous recorded sync point
@@ -441,18 +667,19 @@ Do not stop after a local commit unless the user explicitly asks to pause before
 
 For the common "catch up XerahS to the latest local ShareX state" task:
 
-1. Read `PORT_STATUS.md` to get the last synced ShareX hash.
-2. Run `git -C <sharex_repo> fetch --prune` and check `git -C <sharex_repo> status --short --branch`.
-3. If the local ShareX checkout is behind, run `git -C <sharex_repo> pull --ff-only`; use `--rebase --autostash` only for unrelated local ShareX changes that must be preserved.
-4. Run `git -C <sharex_repo> log -1 --format="%H %cs %s" -- ShareX.ImageEditor`.
-5. Run `git -C <sharex_repo> diff --name-only <last_sync>..HEAD -- ShareX.ImageEditor`.
-6. Map each changed upstream file into `XerahS\ShareX.ImageEditor\src\ShareX.ImageEditor`.
-7. Add missing files first.
-8. Review every upstream commit in the range so you understand the complete feature and bug-fix set.
-9. For each item, compare the upstream behavior against the current XerahS behavior and decide whether it is missing, already fixed, implemented differently, partially implemented, or conflicting.
-10. Post the ImageEditor Port Manifest listing every identified bug fix and enhancement, including XerahS status, decision, and rationale, before editing.
-11. Read upstream and XerahS code where needed to confirm how the behavior works.
-12. Port, manually merge, keep XerahS behavior, or write a custom implementation as appropriate; do not blind cherry-pick or raw-copy diverged Avalonia files.
-13. Commit each completed bug fix/enhancement as a separate `ShareX.ImageEditor` submodule commit, keeping shared infrastructure separate when needed.
-14. Build the ImageEditor project, then the XerahS solution.
-15. Update `PORT_STATUS.md`, then push the submodule commits and commit/push the root pointer separately.
+1. Resolve `$ShareXRepo` and `$XerahSRoot` independently (user paths first). Use the cloud/CI fallback clone only when no local ShareX checkout exists.
+2. Read `$XerahSRoot/ShareX.ImageEditor/PORT_STATUS.md` to get the last synced ShareX hash.
+3. Run `git -C "$ShareXRepo" fetch --prune` and check `git -C "$ShareXRepo" status --short --branch`.
+4. If the local ShareX checkout is behind, run `git -C "$ShareXRepo" pull --ff-only`; use `--rebase --autostash` only for unrelated local ShareX changes that must be preserved.
+5. Run `git -C "$ShareXRepo" log -1 --format="%H %cs %s" -- ShareX.ImageEditor`.
+6. Run `git -C "$ShareXRepo" diff --name-only <last_sync>..HEAD -- ShareX.ImageEditor`.
+7. Map each changed upstream file into `$XerahSRoot/ShareX.ImageEditor/src/ShareX.ImageEditor`. Map `Integration/` to `Hosting/`.
+8. For large ranges, run the 2e-triage classification (NEW / SAFE_SYNC / AVALONIA_NS / DIVERGED) against a base worktree before deciding sync strategy per file.
+9. Review every upstream commit in the range so you understand the complete feature and bug-fix set.
+10. For each item, compare the upstream behavior against the current XerahS behavior and decide whether it is missing, already fixed, implemented differently, partially implemented, or conflicting.
+11. Post the ImageEditor Port Manifest listing every identified bug fix and enhancement, including XerahS status, decision, and rationale, before editing.
+12. Read upstream and XerahS code where needed to confirm how the behavior works.
+13. Port, manually merge, keep XerahS behavior, or write a custom implementation as appropriate; do not blind cherry-pick or raw-copy diverged Avalonia files.
+14. Commit each completed bug fix/enhancement as a separate `ShareX.ImageEditor` submodule commit, keeping shared infrastructure separate when needed.
+15. Build the ImageEditor project, then the XerahS solution.
+16. Update `PORT_STATUS.md`, then push the submodule commits and commit/push the root pointer separately.

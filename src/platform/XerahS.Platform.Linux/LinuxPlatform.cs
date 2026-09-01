@@ -35,6 +35,9 @@ namespace XerahS.Platform.Linux
     /// </summary>
     internal enum LinuxHotkeyBackend
     {
+        /// <summary>Direct evdev listener: works on every Wayland compositor and X11 when a keyboard device is readable (XIP0080).</summary>
+        Evdev,
+
         /// <summary>org.freedesktop.portal.GlobalShortcuts is available (works on any compositor that ships it).</summary>
         Portal,
 
@@ -91,37 +94,7 @@ namespace XerahS.Platform.Linux
             bool hasGlobalShortcuts = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.GlobalShortcuts");
             bool hasInputCapture = usePortalServices && PortalInterfaceChecker.HasInterface("org.freedesktop.portal.InputCapture");
 
-            // Pick the hotkey backend from session/portal/desktop facts. On a Wayland session without
-            // the GlobalShortcuts portal the X11 XGrabKey backend cannot deliver global hotkeys to a
-            // backgrounded app, so COSMIC gets the compositor-shortcut writer (XIP0079) and other
-            // compositors honestly report GlobalShortcutsUnavailable (XIP0078). See XIP0077.
-            LinuxHotkeyBackend hotkeyBackend = SelectHotkeyBackend(isWayland, hasGlobalShortcuts, environment.Desktop);
-            IHotkeyService hotkeyService;
-            switch (hotkeyBackend)
-            {
-                case LinuxHotkeyBackend.Portal:
-                    hotkeyService = new WaylandPortalHotkeyService();
-                    break;
-
-                case LinuxHotkeyBackend.Cosmic:
-                    DebugHelper.WriteLine("Linux: COSMIC Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
-                        "Binding global hotkeys through the COSMIC compositor's custom-shortcut config so cosmic-comp " +
-                        "spawns XerahS on the keypress (XIP0079).");
-                    hotkeyService = new CosmicHotkeyService();
-                    break;
-
-                case LinuxHotkeyBackend.X11Unavailable:
-                    DebugHelper.WriteLine("Linux: Wayland session without org.freedesktop.portal.GlobalShortcuts. " +
-                        "Global hotkeys cannot be delivered by the X11 fallback on this compositor; they will be " +
-                        "reported as GlobalShortcutsUnavailable. Bind a compositor custom shortcut to the XerahS " +
-                        "capture verb as a workaround (see XIP0077 / XIP0078).");
-                    hotkeyService = new LinuxHotkeyService(globalShortcutsUnavailable: true);
-                    break;
-
-                default:
-                    hotkeyService = new LinuxHotkeyService(globalShortcutsUnavailable: false);
-                    break;
-            }
+            IHotkeyService hotkeyService = CreateHotkeyService(environment, hasGlobalShortcuts, isWayland);
 
             IInputService inputService = hasInputCapture
                 ? new WaylandPortalInputService()
@@ -165,10 +138,24 @@ namespace XerahS.Platform.Linux
 
         /// <summary>
         /// Decides which <see cref="LinuxHotkeyBackend"/> to bind from the session facts. Pure and
-        /// deterministic so it can be unit-tested without a live session. See XIP0077/XIP0078/XIP0079.
+        /// deterministic so it can be unit-tested without a live session.
+        ///
+        /// Preference order:
+        /// 1. Direct evdev listener (works on every Wayland compositor and X11) when at least
+        ///    one keyboard device is readable. See XIP0080.
+        /// 2. XDG GlobalShortcuts portal on sessions that expose it.
+        /// 3. COSMIC compositor custom-shortcut writer on portal-less COSMIC Wayland (XIP0079).
+        /// 4. Honest GlobalShortcutsUnavailable report on other portal-less Wayland (XIP0078):
+        ///    the X11 grab cannot deliver hotkeys to a backgrounded app there.
+        /// 5. X11 key grabs (<see cref="LinuxHotkeyService"/>) on native X11.
         /// </summary>
-        internal static LinuxHotkeyBackend SelectHotkeyBackend(bool isWayland, bool hasGlobalShortcuts, string? desktop)
+        internal static LinuxHotkeyBackend SelectHotkeyBackend(bool isWayland, bool hasGlobalShortcuts, string? desktop, bool evdevAvailable)
         {
+            if (evdevAvailable)
+            {
+                return LinuxHotkeyBackend.Evdev;
+            }
+
             if (hasGlobalShortcuts)
             {
                 return LinuxHotkeyBackend.Portal;
@@ -185,6 +172,81 @@ namespace XerahS.Platform.Linux
             }
 
             return LinuxHotkeyBackend.X11;
+        }
+
+        /// <summary>
+        /// Selects the global hotkey provider for the current session using
+        /// <see cref="SelectHotkeyBackend"/>. The backend can be forced with the
+        /// XERAHS_LINUX_HOTKEY_BACKEND environment variable (values: evdev, portal, cosmic, x11)
+        /// for diagnostics and troubleshooting.
+        /// </summary>
+        private static IHotkeyService CreateHotkeyService(LinuxRuntimeEnvironment environment, bool hasGlobalShortcuts, bool isWayland)
+        {
+            string? forced = Environment.GetEnvironmentVariable("XERAHS_LINUX_HOTKEY_BACKEND")?.Trim().ToLowerInvariant();
+
+            if (forced == "portal")
+            {
+                if (hasGlobalShortcuts)
+                {
+                    DebugHelper.WriteLine("Linux hotkeys: Forced portal backend via XERAHS_LINUX_HOTKEY_BACKEND.");
+                    return new WaylandPortalHotkeyService();
+                }
+
+                DebugHelper.WriteLine("Linux hotkeys: portal backend forced but GlobalShortcuts portal is unavailable; falling back to X11.");
+                return new LinuxHotkeyService();
+            }
+
+            if (forced == "x11")
+            {
+                DebugHelper.WriteLine("Linux hotkeys: Forced X11 backend via XERAHS_LINUX_HOTKEY_BACKEND.");
+                return new LinuxHotkeyService();
+            }
+
+            if (forced == "cosmic")
+            {
+                DebugHelper.WriteLine("Linux hotkeys: Forced COSMIC compositor-shortcut backend via XERAHS_LINUX_HOTKEY_BACKEND (XIP0079).");
+                return new CosmicHotkeyService();
+            }
+
+            bool evdevForced = forced == "evdev";
+            bool evdevAvailable = EvdevGlobalHotkeyService.IsAvailable();
+
+            if (evdevForced && !evdevAvailable)
+            {
+                DebugHelper.WriteLine("Linux hotkeys: evdev backend requested but no readable keyboard devices found. " +
+                    "Grant input access (input group / udev rule) or run 'xerahs doctor --linux-input'.");
+                // Honor the forced choice even if currently unusable; the service self-reports failures.
+                return new EvdevGlobalHotkeyService();
+            }
+
+            switch (SelectHotkeyBackend(isWayland, hasGlobalShortcuts, environment.Desktop, evdevAvailable))
+            {
+                case LinuxHotkeyBackend.Evdev:
+                    DebugHelper.WriteLine("Linux hotkeys: Using direct evdev listener (XIP0080).");
+                    return new EvdevGlobalHotkeyService();
+
+                case LinuxHotkeyBackend.Portal:
+                    DebugHelper.WriteLine("Linux hotkeys: evdev unavailable; using XDG GlobalShortcuts portal.");
+                    return new WaylandPortalHotkeyService();
+
+                case LinuxHotkeyBackend.Cosmic:
+                    DebugHelper.WriteLine("Linux hotkeys: COSMIC Wayland session without evdev access or " +
+                        "org.freedesktop.portal.GlobalShortcuts. Binding global hotkeys through the COSMIC " +
+                        "compositor's custom-shortcut config so cosmic-comp spawns XerahS on the keypress (XIP0079).");
+                    return new CosmicHotkeyService();
+
+                case LinuxHotkeyBackend.X11Unavailable:
+                    DebugHelper.WriteLine("Linux hotkeys: Wayland session without evdev access or " +
+                        "org.freedesktop.portal.GlobalShortcuts. Global hotkeys cannot be delivered by the X11 " +
+                        "fallback on this compositor; they will be reported as GlobalShortcutsUnavailable. " +
+                        "Grant evdev input access ('xerahs doctor --linux-input') or bind a compositor custom " +
+                        "shortcut to the XerahS capture verb as a workaround (see XIP0077 / XIP0078 / XIP0080).");
+                    return new LinuxHotkeyService(globalShortcutsUnavailable: true);
+
+                default:
+                    DebugHelper.WriteLine("Linux hotkeys: Using X11 key grabs.");
+                    return new LinuxHotkeyService();
+            }
         }
 
         private static IStartupService CreateStartupService(LinuxRuntimeEnvironment environment)

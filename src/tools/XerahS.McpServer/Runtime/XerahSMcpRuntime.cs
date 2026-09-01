@@ -1,13 +1,34 @@
-using System.Globalization;
-using System.Security.Cryptography;
-using System.Text.Json;
+#region License Information (GPL v3)
+
+/*
+    XerahS - The Avalonia UI implementation of ShareX
+    Copyright (c) 2007-2026 ShareX Team
+
+    This program is free software; you can redistribute it and/or
+    modify it under the terms of the GNU General Public License
+    as published by the Free Software Foundation; either version 2
+    of the License, or (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+    Optionally you can also view the license at <http://www.gnu.org/licenses/>.
+*/
+
+#endregion License Information (GPL v3)
+
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using Newtonsoft.Json;
 using XerahS.Bootstrap;
 using XerahS.Common;
 using XerahS.Core;
-using XerahS.Core.Helpers;
 using XerahS.Core.Hotkeys;
 using XerahS.Core.Services;
 using XerahS.Core.Tasks;
@@ -22,9 +43,31 @@ namespace XerahS.McpServer.Runtime;
 
 public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
 {
+    internal const long MaxInlineHistoryBlobBytes = McpHistoryService.MaxInlineBlobBytes;
+
     private readonly SemaphoreSlim _initializeGate = new(1, 1);
+    private readonly McpHistoryService _historyService;
+    private readonly McpSettingsWorkflowService _settingsWorkflowService;
+    private readonly McpResourceService _resourceService;
     private IServiceProvider? _services;
     private IDesktopTaskManager? _taskManager;
+
+    public XerahSMcpRuntime()
+    {
+        _historyService = new McpHistoryService();
+        _settingsWorkflowService = new McpSettingsWorkflowService();
+        _resourceService = new McpResourceService(_historyService, _settingsWorkflowService);
+    }
+
+    internal XerahSMcpRuntime(
+        McpHistoryService historyService,
+        McpSettingsWorkflowService settingsWorkflowService,
+        McpResourceService resourceService)
+    {
+        _historyService = historyService ?? throw new ArgumentNullException(nameof(historyService));
+        _settingsWorkflowService = settingsWorkflowService ?? throw new ArgumentNullException(nameof(settingsWorkflowService));
+        _resourceService = resourceService ?? throw new ArgumentNullException(nameof(resourceService));
+    }
 
     public string ServerVersion => Server.Capabilities.ServerVersion;
 
@@ -72,7 +115,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         using var image = await PlatformServices.ScreenCapture.CaptureRectAsync(selection, CreateCaptureOptions(settings))
             ?? throw new InvalidOperationException("XerahS failed to capture the selected region.");
         var savedPath = SaveImageToFile(image, settings);
-        AppendHistoryItem(savedPath, "Image");
+        _historyService.AppendItem(savedPath, "Image");
 
         return new JsonObject
         {
@@ -102,7 +145,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         using var image = await PlatformServices.ScreenCapture.CaptureWindowAsync(handle, PlatformServices.Window, CreateCaptureOptions(settings))
             ?? throw new InvalidOperationException("XerahS failed to capture the requested window.");
         var savedPath = SaveImageToFile(image, settings);
-        AppendHistoryItem(savedPath, "Image", null, PlatformServices.Window.GetWindowText(handle), ResolveProcessName(handle));
+        _historyService.AppendItem(savedPath, "Image", null, PlatformServices.Window.GetWindowText(handle), ResolveProcessName(handle));
 
         return new JsonObject
         {
@@ -120,7 +163,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         var settings = CreateCaptureTaskSettings(null, WorkflowType.PrintScreen);
         using var image = await CaptureFullScreenBitmapAsync(monitor, settings);
         var savedPath = SaveImageToFile(image, settings);
-        AppendHistoryItem(savedPath, "Image");
+        _historyService.AppendItem(savedPath, "Image");
 
         return new JsonObject
         {
@@ -180,7 +223,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
 
         using var image = result.Image ?? throw new InvalidOperationException("Scrolling capture did not produce an image.");
         var savedPath = SaveImageToFile(image, settings);
-        AppendHistoryItem(savedPath, "Image", null, PlatformServices.Window.GetWindowText(handle), ResolveProcessName(handle));
+        _historyService.AppendItem(savedPath, "Image", null, PlatformServices.Window.GetWindowText(handle), ResolveProcessName(handle));
 
         return new JsonObject
         {
@@ -219,7 +262,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
             ["input_path"] = absolutePath,
             ["output_path"] = outputPath,
             ["auto_save"] = autoSave,
-            ["annotations_applied"] = ToJsonArray(applied),
+            ["annotations_applied"] = McpJsonSerialization.ToJsonArray(applied),
             ["interactive_editor_available"] = false
         };
     }
@@ -257,7 +300,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
             ["url"] = url,
             ["filename"] = fileInfo.Name,
             ["size_bytes"] = fileInfo.Length,
-            ["destination"] = ResolveDestinationSummary(settings.DestinationInstanceId)
+            ["destination"] = McpSettingsWorkflowService.ResolveDestinationSummary(settings.DestinationInstanceId)
         };
     }
 
@@ -315,190 +358,38 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
     public async Task<JsonObject> QueryHistoryAsync(string? query, string? fromDate, string? toDate, string fileType, int limit, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-
-        List<HistoryItem> historyItems = LoadHistoryItems();
-        Dictionary<long, string> indexedTexts = new HistoryOcrIndexStore(SettingsManager.GetHistoryFilePath())
-            .GetTexts(historyItems.Select(item => item.Id));
-
-        var filtered = historyItems
-            .Where(item => MatchesDate(item, fromDate, toDate))
-            .Where(item => MatchesFileType(item, fileType))
-            .Where(item => MatchesQuery(item, query, indexedTexts.TryGetValue(item.Id, out string? ocrText) ? ocrText : null))
-            .OrderByDescending(item => item.DateTime)
-            .ToList();
-
-        var boundedLimit = Math.Clamp(limit, 1, 100);
-        var page = filtered
-            .Take(boundedLimit)
-            .Select(item => CreateHistorySummary(item, indexedTexts.TryGetValue(item.Id, out string? ocrText) ? ocrText : null))
-            .Cast<JsonNode>()
-            .ToArray();
-
-        return new JsonObject
-        {
-            ["items"] = new JsonArray(page),
-            ["total_count"] = filtered.Count,
-            ["has_more"] = filtered.Count > boundedLimit
-        };
+        return _historyService.Query(query, fromDate, toDate, fileType, limit);
     }
 
     public async Task<JsonObject> GetHistoryItemAsync(string? id, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-        return await CreateHistoryDetailsAsync(FindHistoryItem(id), cancellationToken);
+        return await _historyService.GetItemAsync(id, cancellationToken);
     }
 
     public async Task<JsonObject> ListWorkflowsAsync(CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-
-        var workflows = SettingsManager.WorkflowsConfig?.Hotkeys ?? [];
-        return new JsonObject
-        {
-            ["workflows"] = new JsonArray(workflows.Select(workflow => new JsonObject
-            {
-                ["id"] = workflow.Id,
-                ["name"] = string.IsNullOrWhiteSpace(workflow.Name) ? workflow.ToString() : workflow.Name,
-                ["job"] = workflow.Job.ToString(),
-                ["capture_mode"] = InferCaptureMode(workflow.Job),
-                ["after_capture"] = FlagsToNames(workflow.TaskSettings.AfterCaptureJob),
-                ["after_upload"] = FlagsToNames(workflow.TaskSettings.AfterUploadJob),
-                ["enabled"] = workflow.Enabled,
-                ["pinned_to_tray"] = workflow.PinnedToTray
-            }).Cast<JsonNode>().ToArray()),
-            ["count"] = workflows.Count
-        };
+        return _settingsWorkflowService.ListWorkflows();
     }
 
     public async Task<JsonObject> GetSettingsAsync(string? category, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-
-        var normalized = category?.Trim().ToLowerInvariant();
-        JsonNode settings = normalized switch
-        {
-            "capture" => CreateCaptureSettings(),
-            "upload" => CreateUploadSettings(),
-            "history" => CreateHistorySettings(),
-            "general" => CreateGeneralSettings(),
-            "integration" => CreateIntegrationSettings(),
-            null or "" => new JsonObject
-            {
-                ["capture"] = CreateCaptureSettings(),
-                ["upload"] = CreateUploadSettings(),
-                ["history"] = CreateHistorySettings(),
-                ["general"] = CreateGeneralSettings(),
-                ["integration"] = CreateIntegrationSettings()
-            },
-            _ => throw new ArgumentException($"Unknown settings category: {category}")
-        };
-
-        return new JsonObject
-        {
-            ["category"] = string.IsNullOrWhiteSpace(normalized) ? "all" : normalized,
-            ["settings"] = settings
-        };
+        return _settingsWorkflowService.GetSettings(category);
     }
 
     public async Task<JsonObject> ReadResourceAsync(string uri, CancellationToken cancellationToken = default)
     {
         await EnsureInitializedAsync(cancellationToken);
-
-        if (uri.StartsWith("xerahs://history/thumb/", StringComparison.OrdinalIgnoreCase))
-        {
-            var item = FindHistoryItem(uri["xerahs://history/thumb/".Length..]);
-            if (string.IsNullOrWhiteSpace(item.FilePath) || !File.Exists(item.FilePath))
-            {
-                throw new FileNotFoundException("History item thumbnail source file was not found.", item.FilePath);
-            }
-
-            return new JsonObject
-            {
-                ["contents"] = new JsonArray(
-                    new JsonObject
-                    {
-                        ["uri"] = uri,
-                        ["mimeType"] = GuessMimeType(item.FilePath),
-                        ["blob"] = Convert.ToBase64String(await File.ReadAllBytesAsync(item.FilePath, cancellationToken))
-                    })
-            };
-        }
-
-        if (uri.StartsWith("xerahs://history/search", StringComparison.OrdinalIgnoreCase))
-        {
-            var queryIndex = uri.IndexOf("?q=", StringComparison.OrdinalIgnoreCase);
-            var query = queryIndex >= 0 ? Uri.UnescapeDataString(uri[(queryIndex + 3)..]) : null;
-            return CreateJsonResource(uri, await QueryHistoryAsync(query, null, null, "all", 20, cancellationToken));
-        }
-
-        if (uri.StartsWith("xerahs://history/", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateJsonResource(uri, await GetHistoryItemAsync(uri["xerahs://history/".Length..], cancellationToken));
-        }
-
-        if (uri.Equals("xerahs://capture/latest", StringComparison.OrdinalIgnoreCase))
-        {
-            var latest = LoadHistoryItems().OrderByDescending(item => item.DateTime).FirstOrDefault()
-                ?? throw new InvalidOperationException("No capture history is available.");
-            return CreateJsonResource(uri, await CreateHistoryDetailsAsync(latest, cancellationToken));
-        }
-
-        if (uri.Equals("xerahs://workflows", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateJsonResource(uri, await ListWorkflowsAsync(cancellationToken));
-        }
-
-        if (uri.StartsWith("xerahs://workflows/", StringComparison.OrdinalIgnoreCase))
-        {
-            var workflowId = uri["xerahs://workflows/".Length..];
-            var workflow = SettingsManager.GetWorkflowById(workflowId)
-                ?? throw new InvalidOperationException($"Workflow '{workflowId}' was not found.");
-
-            return CreateJsonResource(uri, new JsonObject
-            {
-                ["workflow"] = new JsonObject
-                {
-                    ["id"] = workflow.Id,
-                    ["name"] = string.IsNullOrWhiteSpace(workflow.Name) ? workflow.ToString() : workflow.Name,
-                    ["job"] = workflow.Job.ToString(),
-                    ["capture_mode"] = InferCaptureMode(workflow.Job),
-                    ["after_capture"] = FlagsToNames(workflow.TaskSettings.AfterCaptureJob),
-                    ["after_upload"] = FlagsToNames(workflow.TaskSettings.AfterUploadJob),
-                    ["enabled"] = workflow.Enabled,
-                    ["pinned_to_tray"] = workflow.PinnedToTray
-                }
-            });
-        }
-
-        if (uri.StartsWith("xerahs://settings/", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateJsonResource(uri, await GetSettingsAsync(uri["xerahs://settings/".Length..], cancellationToken));
-        }
-
-        if (uri.Equals("xerahs://monitors", StringComparison.OrdinalIgnoreCase))
-        {
-            var screens = PlatformServices.Screen.GetAllScreens();
-            return CreateJsonResource(uri, new JsonObject
-            {
-                ["monitors"] = new JsonArray(screens.Select((screen, index) => new JsonObject
-                {
-                    ["index"] = index,
-                    ["device_name"] = screen.DeviceName,
-                    ["is_primary"] = screen.IsPrimary,
-                    ["bounds"] = SerializeRectangle(screen.Bounds),
-                    ["working_area"] = SerializeRectangle(screen.WorkingArea),
-                    ["scale_factor"] = screen.ScaleFactor
-                }).Cast<JsonNode>().ToArray())
-            });
-        }
-
-        if (uri.Equals("xerahs://destinations", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateJsonResource(uri, CreateDestinationsResource());
-        }
-
-        throw new ArgumentException($"Unknown resource URI: {uri}");
+        return await _resourceService.ReadAsync(uri, cancellationToken);
     }
+
+    internal static bool IsHistorySearchResourceUri(string uri) =>
+        McpResourceService.IsHistorySearchResourceUri(uri);
+
+    internal static string? DecodeResourceQueryComponent(string value) =>
+        McpResourceService.DecodeResourceQueryComponent(value);
 
     private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
     {
@@ -560,7 +451,9 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         settings.Job = WorkflowType.FileUpload;
         settings.AfterCaptureJob = AfterCaptureTasks.None;
         settings.AfterUploadJob = AfterUploadTasks.None;
-        settings.DestinationInstanceId = ResolveDestinationInstanceId(destination, forcedCategory ?? GuessUploaderCategory(filePathOrName));
+        settings.DestinationInstanceId = McpSettingsWorkflowService.ResolveDestinationInstanceId(
+            destination,
+            forcedCategory ?? GuessUploaderCategory(filePathOrName));
         return settings;
     }
 
@@ -569,9 +462,24 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         ArgumentNullException.ThrowIfNull(_taskManager);
 
         var tcs = new TaskCompletionSource<WorkerTask>(TaskCreationOptions.RunContinuationsAsynchronously);
+        WorkerTask? expectedTask = null;
+        EventHandler<WorkerTask>? startedHandler = null;
+        startedHandler = (_, task) =>
+        {
+            _taskManager.TaskStarted -= startedHandler;
+            expectedTask = task;
+        };
+
+        _taskManager.TaskStarted += startedHandler;
+
         EventHandler<WorkerTask>? handler = null;
         handler = (_, task) =>
         {
+            if (expectedTask == null || task != expectedTask)
+            {
+                return;
+            }
+
             _taskManager.TaskCompleted -= handler;
             tcs.TrySetResult(task);
         };
@@ -589,6 +497,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         }
         catch
         {
+            _taskManager.TaskStarted -= startedHandler;
             _taskManager.TaskCompleted -= handler;
             throw;
         }
@@ -621,7 +530,7 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
 
         var cropped = new SkiaSharp.SKBitmap(crop.Width, crop.Height);
         using var canvas = new SkiaSharp.SKCanvas(cropped);
-        canvas.DrawBitmap(bitmap, crop, new SkiaSharp.SKRect(0, 0, crop.Width, crop.Height));
+        canvas.DrawBitmap(bitmap, crop, new SkiaSharp.SKRect(0, 0, crop.Width, crop.Height), SkiaSharp.SKSamplingOptions.Default);
         bitmap.Dispose();
         return cropped;
     }
@@ -717,32 +626,6 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         return candidate;
     }
 
-    private static void AppendHistoryItem(string filePath, string type, string? url = null, string? windowTitle = null, string? processName = null)
-    {
-        var historyPath = SettingsManager.GetHistoryFilePath();
-        using var historyManager = new HistoryManagerSQLite(historyPath);
-        var item = new HistoryItem
-        {
-            FilePath = filePath,
-            FileName = Path.GetFileName(filePath),
-            DateTime = DateTime.Now,
-            Type = type,
-            URL = url ?? string.Empty
-        };
-
-        if (!string.IsNullOrWhiteSpace(windowTitle))
-        {
-            item.Tags["WindowTitle"] = windowTitle;
-        }
-
-        if (!string.IsNullOrWhiteSpace(processName))
-        {
-            item.Tags["ProcessName"] = processName;
-        }
-
-        historyManager.AppendHistoryItem(item);
-    }
-
     private static string? ResolveProcessName(IntPtr handle)
     {
         try
@@ -760,42 +643,6 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         {
             return null;
         }
-    }
-
-    private static string? ResolveDestinationInstanceId(string? destination, UploaderCategory category)
-    {
-        var instanceManager = InstanceManager.Instance;
-        if (string.IsNullOrWhiteSpace(destination))
-        {
-            return instanceManager.GetDefaultInstance(category)?.InstanceId;
-        }
-
-        var normalized = destination.Trim();
-        var allInstances = instanceManager.GetInstances();
-        var matched = allInstances.FirstOrDefault(instance =>
-                string.Equals(instance.InstanceId, normalized, StringComparison.OrdinalIgnoreCase))
-            ?? allInstances.FirstOrDefault(instance =>
-                instance.Category == category &&
-                (string.Equals(instance.ProviderId, normalized, StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(instance.DisplayName, normalized, StringComparison.OrdinalIgnoreCase)));
-
-        if (matched == null)
-        {
-            throw new InvalidOperationException($"Upload destination '{destination}' was not found.");
-        }
-
-        return matched.InstanceId;
-    }
-
-    private static string? ResolveDestinationSummary(string? destinationInstanceId)
-    {
-        if (string.IsNullOrWhiteSpace(destinationInstanceId))
-        {
-            return null;
-        }
-
-        var instance = InstanceManager.Instance.GetInstance(destinationInstanceId);
-        return instance == null ? destinationInstanceId : $"{instance.DisplayName} ({instance.ProviderId})";
     }
 
     private static UploaderCategory GuessUploaderCategory(string filePathOrName)
@@ -829,357 +676,24 @@ public sealed class XerahSMcpRuntime : IXerahSMcpRuntime
         };
     }
 
-    private static List<HistoryItem> LoadHistoryItems()
-    {
-        var historyPath = SettingsManager.GetHistoryFilePath();
-        if (!File.Exists(historyPath))
-        {
-            return [];
-        }
+    internal Task<JsonObject> CreateHistoryDetailsAsync(HistoryItem item, CancellationToken cancellationToken) =>
+        _historyService.CreateDetailsAsync(item, cancellationToken);
 
-        using var manager = new HistoryManagerSQLite(historyPath);
-        var count = manager.GetTotalCount();
-        return count > 0 ? manager.GetHistoryItems(0, count) : [];
-    }
+    internal static string ResolveHistoryBlobPath(HistoryItem item) =>
+        McpHistoryService.ResolveBlobPath(item);
 
-    private static HistoryItem FindHistoryItem(string? id)
-    {
-        if (string.IsNullOrWhiteSpace(id))
-        {
-            throw new ArgumentException("id is required.", nameof(id));
-        }
+    internal static string CreateHistoryBlobResourceUri(HistoryItem item) =>
+        McpHistoryService.CreateBlobResourceUri(item);
 
-        if (!long.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedId))
-        {
-            throw new ArgumentException("History item IDs must be integer row IDs.", nameof(id));
-        }
+    internal static JsonObject CreateHistoryBlobTooLargeResponse(string uri, string blobPath, long byteLength) =>
+        McpHistoryService.CreateBlobTooLargeResponse(uri, blobPath, byteLength);
 
-        var item = LoadHistoryItems().FirstOrDefault(historyItem => historyItem.Id == parsedId);
-        return item ?? throw new InvalidOperationException($"History item '{id}' was not found.");
-    }
+    internal static JsonObject CreateHistoryBlobMissingResponse(string uri, HistoryItem item) =>
+        McpHistoryService.CreateBlobMissingResponse(uri, item);
 
-    private async Task<JsonObject> CreateHistoryDetailsAsync(HistoryItem item, CancellationToken cancellationToken)
-    {
-        long fileSize = 0;
-        string? fileHash = null;
-        int? width = null;
-        int? height = null;
-        string? ocrText = new HistoryOcrIndexStore(SettingsManager.GetHistoryFilePath()).GetText(item.Id);
+    internal static string? CreateFileUrl(string? filePath) =>
+        McpHistoryService.CreateFileUrl(filePath);
 
-        if (!string.IsNullOrWhiteSpace(item.FilePath) && File.Exists(item.FilePath))
-        {
-            var fileInfo = new FileInfo(item.FilePath);
-            fileSize = fileInfo.Length;
-
-            using var hash = MD5.Create();
-            await using var stream = File.OpenRead(item.FilePath);
-            fileHash = Convert.ToHexString(await hash.ComputeHashAsync(stream, cancellationToken)).ToLowerInvariant();
-
-            if (FileHelpers.IsImageFile(item.FilePath))
-            {
-                using var bitmap = SkiaSharp.SKBitmap.Decode(item.FilePath);
-                if (bitmap != null)
-                {
-                    width = bitmap.Width;
-                    height = bitmap.Height;
-
-                    if (string.IsNullOrWhiteSpace(ocrText) && PlatformServices.Ocr?.IsSupported == true)
-                    {
-                        var result = await PlatformServices.Ocr.RecognizeAsync(bitmap, new OcrOptions());
-                        if (result.Success && !string.IsNullOrWhiteSpace(result.Text))
-                        {
-                            ocrText = result.Text;
-                            await OcrIndexingService.PersistRecognizedTextAsync(item, result.Text, "mcp-history-details", null, cancellationToken);
-                        }
-                    }
-                }
-            }
-        }
-
-        return new JsonObject
-        {
-            ["id"] = item.Id.ToString(CultureInfo.InvariantCulture),
-            ["file_path"] = item.FilePath,
-            ["file_url"] = string.IsNullOrWhiteSpace(item.FilePath) ? null : new Uri(item.FilePath).AbsoluteUri,
-            ["thumbnail_path"] = string.IsNullOrWhiteSpace(item.ThumbnailURL) ? null : item.ThumbnailURL,
-            ["capture_type"] = InferHistoryCaptureType(item),
-            ["capture_width"] = width,
-            ["capture_height"] = height,
-            ["created_at"] = item.DateTime.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            ["file_size_bytes"] = fileSize,
-            ["file_hash_md5"] = fileHash,
-            ["upload_url"] = string.IsNullOrWhiteSpace(item.URL) ? null : item.URL,
-            ["ocr_text"] = ocrText,
-            ["window_title"] = item.TagsWindowTitle,
-            ["application_name"] = item.TagsProcessName,
-            ["tags"] = ToJsonArray(item.Tags.Keys),
-            ["host"] = item.Host,
-            ["type"] = item.Type
-        };
-    }
-
-    private static JsonObject CreateHistorySummary(HistoryItem item, string? ocrText)
-    {
-        long size = 0;
-        if (!string.IsNullOrWhiteSpace(item.FilePath) && File.Exists(item.FilePath))
-        {
-            size = new FileInfo(item.FilePath).Length;
-        }
-
-        return new JsonObject
-        {
-            ["id"] = item.Id.ToString(CultureInfo.InvariantCulture),
-            ["file_path"] = item.FilePath,
-            ["thumbnail_url"] = string.IsNullOrWhiteSpace(item.ThumbnailURL) ? null : item.ThumbnailURL,
-            ["created_at"] = item.DateTime.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture),
-            ["file_size_bytes"] = size,
-            ["ocr_text"] = string.IsNullOrWhiteSpace(ocrText) ? null : ocrText,
-            ["tags"] = ToJsonArray(item.Tags.Keys)
-        };
-    }
-
-    private static bool MatchesDate(HistoryItem item, string? fromDate, string? toDate)
-    {
-        if (DateOnly.TryParse(fromDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var from) &&
-            item.DateTime.Date < from.ToDateTime(TimeOnly.MinValue).Date)
-        {
-            return false;
-        }
-
-        if (DateOnly.TryParse(toDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var to) &&
-            item.DateTime.Date > to.ToDateTime(TimeOnly.MaxValue).Date)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool MatchesFileType(HistoryItem item, string? fileType)
-    {
-        return fileType?.Trim().ToLowerInvariant() switch
-        {
-            null or "" or "all" => true,
-            "image" => string.Equals(item.Type, "Image", StringComparison.OrdinalIgnoreCase),
-            "text" => string.Equals(item.Type, "Text", StringComparison.OrdinalIgnoreCase),
-            "video" => string.Equals(item.Type, "Video", StringComparison.OrdinalIgnoreCase),
-            "file" => string.Equals(item.Type, "File", StringComparison.OrdinalIgnoreCase),
-            _ => true
-        };
-    }
-
-    private static bool MatchesQuery(HistoryItem item, string? query, string? indexedOcrText)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return true;
-        }
-
-        var needle = query.Trim();
-        return Contains(item.FileName, needle) ||
-               Contains(item.FilePath, needle) ||
-               Contains(item.URL, needle) ||
-               Contains(item.Host, needle) ||
-               Contains(item.TagsWindowTitle, needle) ||
-               Contains(item.TagsProcessName, needle) ||
-               Contains(indexedOcrText, needle) ||
-               item.Tags.Any(pair => Contains(pair.Key, needle) || Contains(pair.Value, needle));
-    }
-
-    private static bool Contains(string? source, string needle) =>
-        !string.IsNullOrWhiteSpace(source) &&
-        source.Contains(needle, StringComparison.OrdinalIgnoreCase);
-
-    private static string InferHistoryCaptureType(HistoryItem item)
-    {
-        if (!string.IsNullOrWhiteSpace(item.TagsWindowTitle))
-        {
-            return "window";
-        }
-
-        return item.Type.Equals("Image", StringComparison.OrdinalIgnoreCase) ? "screen" : item.Type.ToLowerInvariant();
-    }
-
-    private static string InferCaptureMode(WorkflowType workflowType)
-    {
-        return workflowType switch
-        {
-            WorkflowType.RectangleRegion or WorkflowType.RectangleTransparent => "region",
-            WorkflowType.PrintScreen => "fullscreen",
-            WorkflowType.ActiveWindow => "window",
-            WorkflowType.ActiveMonitor => "monitor",
-            WorkflowType.ScrollingCapture => "scrolling",
-            _ => workflowType.ToString()
-        };
-    }
-
-    private static JsonObject CreateDestinationsResource()
-    {
-        var manager = InstanceManager.Instance;
-        JsonNode[] destinations = manager.GetInstances()
-            .OrderBy(instance => instance.Category)
-            .ThenBy(instance => instance.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .Select(instance => new JsonObject
-            {
-                ["id"] = instance.InstanceId,
-                ["provider_id"] = instance.ProviderId,
-                ["name"] = instance.DisplayName,
-                ["category"] = instance.Category.ToString().ToLowerInvariant(),
-                ["is_available"] = instance.IsAvailable,
-                ["is_default"] = manager.GetDefaultInstance(instance.Category)?.InstanceId == instance.InstanceId
-            })
-            .Cast<JsonNode>()
-            .ToArray();
-
-        return new JsonObject
-        {
-            ["destinations"] = new JsonArray(destinations)
-        };
-    }
-
-    private static JsonObject CreateCaptureSettings()
-    {
-        var captureSettings = SettingsManager.GetFirstWorkflowOrDefault(WorkflowType.RectangleRegion).TaskSettings;
-
-        return new JsonObject
-        {
-            ["default_capture_mode"] = InferCaptureMode(captureSettings.Job),
-            ["use_modern_capture"] = captureSettings.CaptureSettings.UseModernCapture,
-            ["show_cursor"] = captureSettings.CaptureSettings.ShowCursor,
-            ["macos_play_capture_sound"] = captureSettings.CaptureSettings.MacOSPlayCaptureSound,
-            ["capture_delay_seconds"] = captureSettings.CaptureSettings.ScreenshotDelay,
-            ["capture_transparent"] = captureSettings.CaptureSettings.CaptureTransparent,
-            ["capture_shadow"] = captureSettings.CaptureSettings.CaptureShadow,
-            ["capture_client_area"] = captureSettings.CaptureSettings.CaptureClientArea,
-            ["image_format"] = captureSettings.ImageSettings.ImageFormat.ToString().ToLowerInvariant(),
-            ["jpeg_quality"] = captureSettings.ImageSettings.ImageJPEGQuality,
-            ["screenshot_folder"] = SettingsManager.ScreenshotsFolder
-        };
-    }
-
-    private static JsonObject CreateUploadSettings()
-    {
-        var manager = InstanceManager.Instance;
-
-        return new JsonObject
-        {
-            ["default_image_destination"] = ResolveDestinationSummary(manager.GetDefaultInstance(UploaderCategory.Image)?.InstanceId),
-            ["default_text_destination"] = ResolveDestinationSummary(manager.GetDefaultInstance(UploaderCategory.Text)?.InstanceId),
-            ["default_file_destination"] = ResolveDestinationSummary(manager.GetDefaultInstance(UploaderCategory.File)?.InstanceId),
-            ["default_url_shortener"] = ResolveDestinationSummary(manager.GetDefaultInstance(UploaderCategory.UrlShortener)?.InstanceId),
-            ["copy_url_after_upload"] = SettingsManager.GetFirstWorkflowOrDefault(WorkflowType.FileUpload).TaskSettings.AfterUploadJob.HasFlag(AfterUploadTasks.CopyURLToClipboard),
-            ["destinations"] = CreateDestinationsResource()["destinations"]?.DeepClone()
-        };
-    }
-
-    private static JsonObject CreateHistorySettings()
-    {
-        return new JsonObject
-        {
-            ["save_history"] = SettingsManager.Settings.HistorySaveTasks,
-            ["verify_urls"] = SettingsManager.Settings.HistoryCheckURL,
-            ["save_recent_tasks"] = SettingsManager.Settings.RecentTasksSave,
-            ["recent_tasks_limit"] = SettingsManager.Settings.RecentTasksMaxCount,
-            ["screenshot_content_search_enabled"] = SettingsManager.Settings.ScreenshotContentSearchEnabled,
-            ["ocr_indexed_count"] = new HistoryOcrIndexStore(SettingsManager.GetHistoryFilePath()).CountIndexed(),
-            ["history_folder"] = SettingsManager.HistoryFolder,
-            ["history_file"] = SettingsManager.GetHistoryFilePath()
-        };
-    }
-
-    private static JsonObject CreateGeneralSettings()
-    {
-        return new JsonObject
-        {
-            ["language"] = SettingsManager.Settings.Language.ToString(),
-            ["theme_mode"] = SettingsManager.Settings.ThemeMode.ToString(),
-            ["show_tray"] = SettingsManager.Settings.ShowTray,
-            ["run_at_startup"] = SettingsManager.Settings.RunAtStartup,
-            ["disable_hotkeys"] = SettingsManager.Settings.DisableHotkeys,
-            ["settings_folder"] = SettingsManager.SettingsFolder,
-            ["screenshots_folder"] = SettingsManager.ScreenshotsFolder
-        };
-    }
-
-    private static JsonObject CreateIntegrationSettings()
-    {
-        var apiKey = SettingsManager.Settings.McpApiKey;
-        var preview = string.IsNullOrWhiteSpace(apiKey)
-            ? null
-            : $"{new string('*', Math.Max(apiKey.Length - 4, 0))}{apiKey[^Math.Min(4, apiKey.Length)..]}";
-
-        return new JsonObject
-        {
-            ["mcp_api_key_configured"] = !string.IsNullOrWhiteSpace(apiKey),
-            ["mcp_api_key_preview"] = preview,
-            ["mcp_manifest_url"] = "https://xerahs.com/.well-known/mcp/manifest.json"
-        };
-    }
-
-    private static JsonObject CreateJsonResource(string uri, JsonObject payload)
-    {
-        return new JsonObject
-        {
-            ["contents"] = new JsonArray(
-                new JsonObject
-                {
-                    ["uri"] = uri,
-                    ["mimeType"] = "application/json",
-                    ["text"] = payload.ToJsonString(new JsonSerializerOptions { WriteIndented = false })
-                })
-        };
-    }
-
-    private static JsonArray FlagsToNames<TEnum>(TEnum flags)
-        where TEnum : struct, Enum
-    {
-        var value = (Enum)(object)flags;
-        JsonNode[] names = Enum.GetValues<TEnum>()
-            .Where(flag => Convert.ToUInt64(flag, CultureInfo.InvariantCulture) != 0)
-            .Where(flag => value.HasFlag((Enum)(object)flag))
-            .Select(flag => JsonValue.Create(flag.ToString())!)
-            .Cast<JsonNode>()
-            .ToArray();
-
-        return new JsonArray(names);
-    }
-
-    private static JsonObject SerializeRectangle(System.Drawing.Rectangle rectangle)
-    {
-        return new JsonObject
-        {
-            ["x"] = rectangle.X,
-            ["y"] = rectangle.Y,
-            ["width"] = rectangle.Width,
-            ["height"] = rectangle.Height
-        };
-    }
-
-    private static JsonArray ToJsonArray(IEnumerable<string?> values)
-    {
-        JsonNode[] nodes = values
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => JsonValue.Create(value)!)
-            .Cast<JsonNode>()
-            .ToArray();
-
-        return new JsonArray(nodes);
-    }
-
-    private static string GuessMimeType(string path)
-    {
-        return Path.GetExtension(path).ToLowerInvariant() switch
-        {
-            ".png" => "image/png",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".gif" => "image/gif",
-            ".bmp" => "image/bmp",
-            ".webp" => "image/webp",
-            ".txt" or ".log" or ".md" => "text/plain",
-            ".json" => "application/json",
-            _ => "application/octet-stream"
-        };
-    }
 }
 
 public sealed class McpUserCancelledException(string message) : OperationCanceledException(message);

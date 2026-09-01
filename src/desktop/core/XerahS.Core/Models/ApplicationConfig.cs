@@ -60,6 +60,13 @@ public class ApplicationConfig : SettingsBase<ApplicationConfig>
             UseWhiteShareXIcon = true;
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            bool isWayland = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")) ||
+                             string.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"), "wayland", StringComparison.OrdinalIgnoreCase);
+            PersistClipboardAfterExit ??= isWayland;
+        }
+
         if (OperatingSystem.IsMacOS())
         {
             AssistantHotkey = new HotkeyInfo(Key.Space, KeyModifiers.Meta | KeyModifiers.Shift);
@@ -76,7 +83,18 @@ public class ApplicationConfig : SettingsBase<ApplicationConfig>
     public bool TrayIconProgressEnabled = true;
     public bool TaskbarProgressEnabled = true;
     public bool UseWhiteShareXIcon = false;
+    /// <summary>
+    /// Global master switch that suppresses every toast notification popup (the corner
+    /// "Task Completed" / "Upload Completed" window). Capture and upload still run; only
+    /// the toast window is hidden. See issue #252.
+    /// </summary>
+    public bool DisableToastNotification = false;
     public bool? LinuxUseWaylandPortalServices = null;
+    /// <summary>
+    /// After UI clipboard copy, also hand off to wl-copy so paste survives app exit (Linux Wayland).
+    /// Null applies platform default: enabled on Wayland, disabled on X11.
+    /// </summary>
+    public bool? PersistClipboardAfterExit = null;
     public bool RememberMainFormPosition = false;
     public System.Drawing.Point MainFormPosition = System.Drawing.Point.Empty;
     public bool RememberMainFormSize = false;
@@ -96,7 +114,7 @@ public class ApplicationConfig : SettingsBase<ApplicationConfig>
     public bool CaptureCommandPaletteEnabled { get; set; } = true;
     public HotkeyInfo CaptureCommandPaletteHotkey { get; set; } = new HotkeyInfo(Key.Space, KeyModifiers.Control | KeyModifiers.Alt);
     public bool AssistantPromptHistoryEnabled { get; set; }
-    public bool ScreenshotContentSearchEnabled { get; set; }
+    public bool ScreenshotContentSearchEnabled { get; set; } = true;
     public string AssistantActiveProviderId { get; set; } = string.Empty;
     public List<AssistantProviderConfig> AssistantProviders { get; set; } = new();
 
@@ -129,6 +147,7 @@ public class ApplicationConfig : SettingsBase<ApplicationConfig>
 
     public bool UseCustomScreenshotsPath = false;
     public string CustomScreenshotsPath = "";
+    public bool UseSaveImageSubFolderPattern = true;
     public string SaveImageSubFolderPattern = "%y-%mo";
     public string SaveImageSubFolderPatternWindow = "";
 
