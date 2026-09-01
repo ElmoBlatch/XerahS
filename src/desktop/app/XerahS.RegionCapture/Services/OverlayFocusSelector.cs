@@ -30,7 +30,7 @@ namespace XerahS.RegionCapture.Services;
 /// Decides which monitor's overlay should receive initial focus when a region capture starts.
 /// Targeting the monitor under the cursor keeps capture correct even when the compositor reorders
 /// displays or drops the primary-monitor flag after resume/login (e.g. COSMIC), which previously
-/// left no overlay focused. See XIP0081.
+/// left no overlay focused. See XIP0085.
 /// </summary>
 internal static class OverlayFocusSelector
 {

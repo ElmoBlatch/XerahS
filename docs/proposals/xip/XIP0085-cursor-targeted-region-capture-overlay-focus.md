@@ -1,4 +1,4 @@
-# XIP0081 Cursor-Targeted Region Capture Overlay Focus
+# XIP0085 Cursor-Targeted Region Capture Overlay Focus
 
 **Status**: Draft
 **Created**: 2026-06-10

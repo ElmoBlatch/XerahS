@@ -90,7 +90,7 @@ public sealed class OverlayManager : IDisposable
             // Choose which overlay to focus first: the monitor under the cursor, else the primary, else
             // the leftmost. Focusing the cursor's monitor keeps region-capture targeting correct even when
             // the compositor reorders displays or drops the primary flag after resume/login, and still
-            // gives the compositor one clear focus target sooner on Wayland (XIP0081).
+            // gives the compositor one clear focus target sooner on Wayland (XIP0085).
             int focusIndex = OverlayFocusSelector.SelectInitialFocusIndex(monitors, options?.PreferredFocusPoint);
 
             var focusOverlay = focusIndex >= 0 && focusIndex < _overlays.Count
@@ -117,7 +117,7 @@ public sealed class OverlayManager : IDisposable
             // Show the remaining overlays WITHOUT activating them. With ShowActivated=false they map
             // unfocused, so Show() cannot steal focus; calling Activate() here would hand the active
             // window to the LAST overlay shown — the ~16-23 ms programmatic focus theft seen in tracing —
-            // instead of the cursor's overlay (XIP0081).
+            // instead of the cursor's overlay (XIP0085).
             foreach (var overlay in _overlays)
             {
                 if (overlay == focusOverlay)
@@ -138,7 +138,7 @@ public sealed class OverlayManager : IDisposable
             // The pre-capture cursor read (xdotool) goes stale under Wayland whenever the pointer sits
             // over a native surface, so the initial pick can be wrong. Once the XWayland overlays cover
             // every monitor the pointer position reads live again — probe it after mapping settles and
-            // transfer focus if it disagrees with the initial pick (XIP0081).
+            // transfer focus if it disagrees with the initial pick (XIP0085).
             SchedulePostMapFocusCorrection(monitors, focusIndex, options);
 
             if (options?.SessionStartUtc is { } start)

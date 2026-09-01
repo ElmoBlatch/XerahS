@@ -170,7 +170,7 @@ internal static class OverlayRegionCaptureSession
     /// <summary>
     /// Reads the current cursor position so overlay focus can target the monitor the user is working on.
     /// Returns null when the position is unavailable: a failed read surfaces as <c>Point.Empty</c> (0,0),
-    /// which must be treated as "unknown" rather than the desktop origin (XIP0081).
+    /// which must be treated as "unknown" rather than the desktop origin (XIP0085).
     /// </summary>
     private static PixelPoint? ResolvePreferredFocusPoint()
     {

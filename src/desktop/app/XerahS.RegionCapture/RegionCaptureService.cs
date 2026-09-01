@@ -186,7 +186,7 @@ public sealed record RegionCaptureOptions
     /// Logical-desktop point (typically the cursor position at capture start) used to decide which
     /// monitor's overlay receives initial focus: the containing monitor is focused first, otherwise
     /// the primary, then the leftmost, monitor. Null means "unknown" — a failed cursor read must be
-    /// passed as null, never coerced to (0,0). See XIP0081.
+    /// passed as null, never coerced to (0,0). See XIP0085.
     /// </summary>
     public PixelPoint? PreferredFocusPoint { get; init; }
 
@@ -195,7 +195,7 @@ public sealed record RegionCaptureOptions
     /// unavailable. <see cref="PreferredFocusPoint"/> is a snapshot taken before the overlays exist
     /// and can be stale under Wayland (xdotool only tracks the pointer over XWayland surfaces); once
     /// the overlays cover every monitor the position reads live, so OverlayManager probes this after
-    /// mapping to correct a wrong initial focus pick (XIP0081).
+    /// mapping to correct a wrong initial focus pick (XIP0085).
     /// </summary>
     public Func<PixelPoint?>? CursorPointProvider { get; init; }
 }

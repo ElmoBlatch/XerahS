@@ -29,7 +29,7 @@ namespace XerahS.RegionCapture.Services;
 /// Decides when a pointer event on an overlay represents real user input rather than the synthetic
 /// pointer-move Avalonia raises as each overlay window opens. On COSMIC both overlays receive such a
 /// synthetic event within ~1 ms of mapping, so "first pointer event claims focus" hands the active
-/// window to whichever overlay opened last — the wrong-monitor regression in XIP0081. Only motion
+/// window to whichever overlay opened last — the wrong-monitor regression in XIP0085. Only motion
 /// beyond a threshold from the first observed position, or a button press, may claim focus.
 /// </summary>
 internal sealed class PointerFocusClaimGate
